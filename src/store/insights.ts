@@ -51,6 +51,8 @@ interface InsightsState {
   linkPost: (postId: string, contentId: string | null) => void;
   resolveConflicts: (decisions: { conflict: MetricConflict; use: 'manual' | 'synced' }[]) => void;
   pasteToken: (platform: SocialPlatform, accessToken: string, refreshToken?: string, openId?: string) => Promise<boolean>;
+  /** Opens a Chrome window on the server machine for TikTok Studio / Meta Business Suite login (no token). */
+  connectBrowser: (platform: SocialPlatform) => Promise<boolean>;
   disconnect: (platform: SocialPlatform) => Promise<void>;
   replaceData: (snapshots: AccountSnapshot[], posts: PlatformPost[]) => void;
 }
@@ -231,6 +233,20 @@ export const useInsights = create<InsightsState>()((set, get) => ({
       return true;
     } catch (err) {
       toast.error('Token not accepted', err instanceof Error ? err.message : undefined);
+      return false;
+    }
+  },
+
+  async connectBrowser(platform) {
+    toast.info('Chrome window opened', 'Log in there, then close the window to finish.');
+    try {
+      await api<IntegrationStatus>(`/browser/${platformSlug(platform)}/login`, { method: 'POST' });
+      await get().refreshIntegrations();
+      toast.success(`${platform} connected`, 'Pulling your insights now…');
+      void get().syncNow({ platforms: [platform] });
+      return true;
+    } catch (err) {
+      toast.error('Browser login failed', err instanceof Error ? err.message : undefined);
       return false;
     }
   },

@@ -176,6 +176,23 @@ Panduan ini untuk pemula, dari nol sampai data asli muncul di Dashboard. Tanpa l
 
 > **Penting soal keamanan:** access token dan app secret **hanya** disimpan di server (`.env` dan `server/.data/tokens.json`). Dua file itu sudah masuk `.gitignore`, jadi jangan di-commit, jangan di-share di chat.
 
+### Cara paling gampang: Connect via browser (tanpa token)
+
+Gak mau bikin developer app atau ngurus token? Pakai jalur ini.
+
+1. `npm run dev`, buka **Settings → Integrations**.
+2. Klik **Connect via browser**. Jendela Chrome baru kebuka di komputer ini.
+   - **TikTok:** login ke TikTok. Data diambil dari TikTok Studio.
+   - **Instagram:** login Instagram di tab pertama, lalu login Facebook di tab kedua (**Meta Business Suite**). Tab kedua opsional, tapi tanpa itu reach / saves / shares gak kebaca.
+3. Kalau udah login, **tutup jendela Chrome-nya**. Sync pertama langsung jalan.
+4. Selama `npm run dev` nyala, server sync sendiri di background tiap 6 jam (`BROWSER_SYNC_HOURS`). Laptop harus nyala dan servernya jalan.
+
+Yang perlu diketahui:
+- Login disimpan di profil Chrome terpisah (`server/.data/browser/`), bukan Chrome harian kamu. **Disconnect** = logout + hapus profil itu.
+- Jalur ini **membaca dashboard web**, bukan API resmi. Kalau TikTok/Meta ubah tampilan, sebagian angka bisa hilang (muncul warning). TikTok dan Meta juga melarang akses otomatis di ToS mereka, jadi ada risiko akun kena verifikasi/checkpoint. Pakai untuk akun sendiri dan jangan turunin interval sync.
+- Yang kebaca: followers, views, likes, comments, shares, saves per post; Instagram reach dari Business Suite; watch time TikTok kalau tampil di Studio. Riwayat follower harian kebentuk dari tiap sync.
+- Ada yang aneh? Set `SCRAPE_DEBUG=true` dan `BROWSER_HEADLESS=false` di `.env`, restart, klik **Sync now**, lalu cek `server/.data/scrape-debug/`.
+
 ### Gambaran singkat
 
 | | Instagram | TikTok (Business API) | TikTok (Display API, cadangan) |

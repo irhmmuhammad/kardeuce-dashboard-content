@@ -10,7 +10,7 @@ export function remoteProvider(integration: IntegrationStatus): MetricsProvider 
   return {
     platform: integration.platform,
     kind: slug,
-    listIncludesInsights: integration.mode === 'tiktok_business',
+    listIncludesInsights: integration.mode === 'tiktok_business' || integration.mode === 'tiktok_studio' || integration.mode === 'meta_business_suite',
     getAccountInsights: (range) => api<AccountInsightsResponse>(`/${slug}/account?since=${range.since}&until=${range.until}`),
     listMedia: (range) => api<MediaListResponse>(`/${slug}/media?since=${range.since}&until=${range.until}`),
     getMediaInsights: (posts) => api<MediaInsightsResponse>(`/${slug}/media-insights`, { method: 'POST', body: JSON.stringify({ posts }) }),

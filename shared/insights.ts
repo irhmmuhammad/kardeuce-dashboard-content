@@ -99,7 +99,12 @@ export interface MediaInsightsResponse {
   warnings: string[];
 }
 
-export type IntegrationMode = 'instagram_login' | 'tiktok_business' | 'tiktok_display';
+/**
+ * `*_login` / `tiktok_*` modes use official APIs with tokens. `tiktok_studio`
+ * and `meta_business_suite` read the logged-in web dashboards through a local
+ * Chrome profile instead (no token, no developer app).
+ */
+export type IntegrationMode = 'instagram_login' | 'tiktok_business' | 'tiktok_display' | 'tiktok_studio' | 'meta_business_suite';
 
 export interface IntegrationStatus {
   platform: SocialPlatform;
@@ -117,6 +122,10 @@ export interface IntegrationStatus {
   oauthAvailable: boolean;
   /** Last token problem the server ran into (expired, revoked…). */
   error?: string;
+  /** Chrome was found, so "Connect via browser" (no token) can be used. */
+  browserAvailable: boolean;
+  /** Browser mode: next scheduled background sync (ISO). */
+  nextAutoSyncAt?: string;
 }
 
 export interface IntegrationsResponse {

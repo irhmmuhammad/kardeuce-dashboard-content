@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CircleAlert, KeyRound, Plug, RefreshCw, Unplug } from 'lucide-react';
+import { Globe, CircleAlert, KeyRound, Plug, RefreshCw, Unplug } from 'lucide-react';
 import { SOCIAL_PLATFORMS, type IntegrationStatus, type SocialPlatform } from '@shared/insights';
 import { useInsights, usePlatformModes } from '@/store/insights';
 import { confirm } from '@/store/confirm';
@@ -14,7 +14,11 @@ const MODE_LABEL: Record<NonNullable<IntegrationStatus['mode']>, string> = {
   instagram_login: 'Instagram API (Instagram Login)',
   tiktok_business: 'TikTok API for Business',
   tiktok_display: 'TikTok Display API (basic)',
+  tiktok_studio: 'TikTok Studio (browser login)',
+  meta_business_suite: 'Instagram + Meta Business Suite (browser login)',
 };
+
+const BROWSER_MODES = new Set<IntegrationStatus['mode']>(['tiktok_studio', 'meta_business_suite']);
 
 function expiryText(iso?: string): { text: string; warn: boolean } {
   if (!iso) return { text: 'Token expiry unknown', warn: false };
@@ -33,9 +37,17 @@ export function IntegrationsPanel() {
   const sync = useInsights((s) => s.sync);
   const syncNow = useInsights((s) => s.syncNow);
   const disconnect = useInsights((s) => s.disconnect);
+  const connectBrowser = useInsights((s) => s.connectBrowser);
+  const [loggingIn, setLoggingIn] = useState<SocialPlatform | null>(null);
   const refresh = useInsights((s) => s.refreshIntegrations);
   const modes = usePlatformModes();
   const [pasting, setPasting] = useState<SocialPlatform | null>(null);
+
+  const logIn = async (p: SocialPlatform) => {
+    setLoggingIn(p);
+    await connectBrowser(p);
+    setLoggingIn(null);
+  };
 
   return (
     <div className="space-y-2">
@@ -54,7 +66,8 @@ export function IntegrationsPanel() {
         {SOCIAL_PLATFORMS.map((p) => {
           const integ = integrations?.find((i) => i.platform === p);
           const mode = modes[p];
-          const exp = integ?.connected ? expiryText(integ.tokenExpiresAt) : null;
+          const viaBrowser = BROWSER_MODES.has(integ?.mode ?? null) && !!integ?.connected;
+          const exp = integ?.connected && !viaBrowser ? expiryText(integ.tokenExpiresAt) : null;
           const st = sync[p];
           return (
             <li key={p} className="rounded-xl border border-line p-3">
@@ -82,8 +95,13 @@ export function IntegrationsPanel() {
                       </div>
                     )}
                     {exp && <div className={cn(exp.warn && 'font-medium text-amber-700')}>{exp.text}</div>}
+                    {viaBrowser && integ?.nextAutoSyncAt && (
+                      <div>No token · background sync {new Date(integ.nextAutoSyncAt) <= new Date() ? 'running soon' : `next at ${new Date(integ.nextAutoSyncAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</div>
+                    )}
                     <div>Last sync {relativeTime(meta.lastSyncAt[p])}</div>
-                    {!integ?.configured && !integ?.connected && <div className="text-ink-4">No app credentials in .env. You can still paste a token.</div>}
+                    {!integ?.configured && !integ?.connected && (
+                      <div className="text-ink-4">{integ?.browserAvailable ? 'No token needed: connect via browser and log in to ' + (p === 'TikTok' ? 'TikTok Studio' : 'Instagram & Meta Business Suite') + '.' : 'No app credentials in .env. You can still paste a token.'}</div>
+                    )}
                     {integ?.error && <div className="text-red-600">{integ.error}</div>}
                     {st.errors[0] && !st.syncing && <div className="text-red-600">{st.errors[0]}</div>}
                   </div>
@@ -95,10 +113,16 @@ export function IntegrationsPanel() {
                     <Button size="xs" loading={st.syncing} icon={<RefreshCw className="h-3 w-3" />} onClick={() => syncNow({ platforms: [p] })}>
                       Sync now
                     </Button>
-                    {integ.oauthAvailable && (
-                      <Button size="xs" icon={<Plug className="h-3 w-3" />} onClick={() => (window.location.href = `/api/auth/${platformSlug(p)}/start`)}>
-                        Reconnect
+                    {viaBrowser ? (
+                      <Button size="xs" loading={loggingIn === p} icon={<Globe className="h-3 w-3" />} onClick={() => logIn(p)}>
+                        Log in again
                       </Button>
+                    ) : (
+                      integ.oauthAvailable && (
+                        <Button size="xs" icon={<Plug className="h-3 w-3" />} onClick={() => (window.location.href = `/api/auth/${platformSlug(p)}/start`)}>
+                          Reconnect
+                        </Button>
+                      )
                     )}
                     <Button
                       size="xs"
@@ -107,7 +131,9 @@ export function IntegrationsPanel() {
                       onClick={async () => {
                         const ok = await confirm({
                           title: `Disconnect ${p}?`,
-                          description: 'The token is removed from the server. Numbers already synced stay in this workspace.',
+                          description: viaBrowser
+                            ? 'You are logged out of the server’s Chrome profile. Numbers already synced stay in this workspace.'
+                            : 'The token is removed from the server. Numbers already synced stay in this workspace.',
                           confirmLabel: 'Disconnect',
                         });
                         if (ok) await disconnect(p);
@@ -118,9 +144,21 @@ export function IntegrationsPanel() {
                   </>
                 ) : (
                   <>
+                    {integ?.browserAvailable && (
+                      <Button
+                        size="xs"
+                        variant="primary"
+                        loading={loggingIn === p}
+                        title={`Opens Chrome on this computer. Log in to ${p === 'TikTok' ? 'TikTok Studio' : 'Instagram (and Meta Business Suite in the second tab)'}, then close the window.`}
+                        icon={<Globe className="h-3 w-3" />}
+                        onClick={() => logIn(p)}
+                      >
+                        Connect via browser
+                      </Button>
+                    )}
                     <Button
                       size="xs"
-                      variant="primary"
+                      variant={integ?.browserAvailable ? 'secondary' : 'primary'}
                       disabled={!integ?.oauthAvailable}
                       title={integ?.oauthAvailable ? undefined : 'Set the app credentials and PUBLIC_URL in .env first (see README).'}
                       icon={<Plug className="h-3 w-3" />}
@@ -144,7 +182,7 @@ export function IntegrationsPanel() {
         })}
       </ul>
       <p className="text-[11.5px] leading-relaxed text-ink-4">
-        Tokens are stored by the local API server (<code className="rounded bg-muted px-1">server/.data</code>), never in the browser. Auto-sync runs when the app opens and the last sync is older than 6 hours. Setup guide: README → “Menghubungkan Instagram &amp; TikTok”.
+        Tokens and browser logins are stored by the local API server (<code className="rounded bg-muted px-1">server/.data</code>), never in the browser. Auto-sync runs when the app opens and the last sync is older than 6 hours; browser connections also sync in the background every 6 hours while the server runs. Setup guide: README → “Menghubungkan Instagram &amp; TikTok”.
       </p>
       <PasteTokenModal platform={pasting} onClose={() => setPasting(null)} />
     </div>

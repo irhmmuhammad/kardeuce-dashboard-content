@@ -8,7 +8,7 @@
 import { randomBytes } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { serve } from '@hono/node-server';
-import type { DateRange, IntegrationStatus, IntegrationsResponse, PostType, SocialPlatform } from '../shared/insights.ts';
+import { SOCIAL_PLATFORMS, type DateRange, type IntegrationStatus, type IntegrationsResponse, type PostType, type SocialPlatform } from '../shared/insights.ts';
 import { ApiError } from './errors.ts';
 import { addDaysUTC, isISODate } from './dates.ts';
 import { tokenStore, type StoredToken } from './tokenStore.ts';
@@ -16,6 +16,11 @@ import { env, type MediaRef, type ServerProvider } from './providers/types.ts';
 import { instagramProvider } from './providers/instagram.ts';
 import { tiktokBusinessProvider } from './providers/tiktokBusiness.ts';
 import { tiktokDisplayProvider } from './providers/tiktokDisplay.ts';
+import { tiktokStudioProvider } from './providers/tiktokStudio.ts';
+import { metaBusinessSuiteProvider } from './providers/metaBusinessSuite.ts';
+import type { BrowserProvider } from './providers/browserProvider.ts';
+import { browserAvailable } from './browser/chrome.ts';
+import { readScrape } from './browser/cache.ts';
 
 try {
   process.loadEnvFile();
@@ -45,6 +50,8 @@ function configuredProvider(platform: SocialPlatform): ServerProvider | null {
 
 /** The provider that issued a stored token. */
 function providerForToken(token: StoredToken): ServerProvider {
+  if (token.mode === 'meta_business_suite') return metaBusinessSuiteProvider;
+  if (token.mode === 'tiktok_studio') return tiktokStudioProvider;
   if (token.mode === 'instagram_login') return instagramProvider;
   return token.mode === 'tiktok_business' ? tiktokBusinessProvider : tiktokDisplayProvider;
 }
@@ -71,7 +78,41 @@ function status(platform: SocialPlatform): IntegrationStatus {
     connectedAt: token?.connectedAt,
     oauthAvailable: !!provider && provider.oauthReady(),
     error: token?.error,
+    browserAvailable: browserAvailable(),
+    nextAutoSyncAt: token && browserProviders[platform].mode === token.mode ? nextAutoSync(platform) : undefined,
   };
+}
+
+/* ---------------- Browser connections (no token) ---------------- */
+
+const browserProviders: Record<SocialPlatform, BrowserProvider> = {
+  Instagram: metaBusinessSuiteProvider,
+  TikTok: tiktokStudioProvider,
+};
+
+/** Background sync interval for browser connections (hours, min 1, default 6). */
+const AUTO_SYNC_MS = Math.max(1, Number(env('BROWSER_SYNC_HOURS') ?? 6) || 6) * 3600_000;
+
+function nextAutoSync(platform: SocialPlatform): string {
+  const last = readScrape(platform)?.scrapedAt;
+  return new Date(Math.max(Date.now(), (last ? Date.parse(last) : 0) + AUTO_SYNC_MS)).toISOString();
+}
+
+/** Runs every 10 min; scrapes each browser-connected platform once its interval has passed. */
+async function autoSyncTick() {
+  for (const platform of SOCIAL_PLATFORMS) {
+    const token = tokenStore.get(platform);
+    const provider = browserProviders[platform];
+    if (!token || token.mode !== provider.mode || Date.parse(nextAutoSync(platform)) > Date.now()) continue;
+    try {
+      await provider.refresh({ force: true });
+      if (token.error) tokenStore.update(platform, { error: undefined });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[browser] ${platform} auto-sync failed: ${message}`);
+      if (err instanceof ApiError && err.code === 'token_expired') tokenStore.update(platform, { error: message });
+    }
+  }
 }
 
 /** Load + refresh the token; remember token errors so Settings can show them. */
@@ -190,6 +231,13 @@ app.post('/api/auth/:platform/token', async (c) => {
   return c.json(status(platform));
 });
 
+// Opens a visible Chrome window; the request finishes when the user closes it.
+app.post('/api/browser/:platform/login', async (c) => {
+  const platform = parsePlatform(c.req.param('platform'));
+  await browserProviders[platform].login();
+  return c.json(status(platform));
+});
+
 app.delete('/api/integrations/:platform', async (c) => {
   const platform = parsePlatform(c.req.param('platform'));
   const token = tokenStore.get(platform);
@@ -238,5 +286,7 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
   const describe = (s: IntegrationStatus) => (s.connected ? `connected (${s.mode})` : s.configured ? `configured, not connected (${s.mode})` : 'not configured → demo data');
   console.log(`[api] KARDEUCE insights API on http://localhost:${info.port}`);
   console.log(`[api] Instagram: ${describe(ig)} · TikTok: ${describe(tt)}`);
+  setInterval(() => void autoSyncTick(), 10 * 60_000);
+  setTimeout(() => void autoSyncTick(), 15_000);
 });
 
