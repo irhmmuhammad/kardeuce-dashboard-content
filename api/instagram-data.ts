@@ -2,6 +2,7 @@
  * Instagram for the hosted dashboard, without the local server: reads the
  * official Instagram API (Instagram Login) and caches the result in Upstash
  * Redis. Any visit refreshes it when it is older than REFRESH_AFTER_MS.
+ * Account history goes back to the first post (Instagram keeps 2 years).
  *
  *   GET /api/instagram-data          → { integration, scrape } (scrape = ScrapeResult shape)
  *   GET /api/instagram-data?force=1  → refresh now (still at most once a minute)
@@ -15,15 +16,17 @@
  * server. Self-contained on purpose: Vercel bundles this file on its own.
  */
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const GRAPH = `https://graph.instagram.com/${process.env.IG_GRAPH_VERSION ?? 'v26.0'}`;
 const DAY_MS = 86_400_000;
 /** A visit after this refreshes the numbers first. */
 const REFRESH_AFTER_MS = 15 * 60_000;
 const FORCE_MIN_GAP_MS = 60_000;
-/** Instagram returns account insights for the last 90 days only. */
-const HISTORY_DAYS = 90;
+/** Instagram keeps account insights for 2 years; history starts at the first post (or 2 years back). */
+const MAX_HISTORY_DAYS = 729;
+/** Missing days read per refresh (2 calls each): a new account's backlog fills over a few refreshes. */
+const BACKFILL_PER_REFRESH = 150;
 /** Days refetched every time (Instagram revises recent days). */
 const RECENT_DAYS = 3;
 /** Posts younger than this get fresh insights on every refresh, older ones once a day. */
@@ -70,6 +73,8 @@ interface Cache {
   posts: Post[];
   /** mediaId → when its insights were last read (ISO). */
   insightsAt: Record<string, string>;
+  /** First day of the account history (first post, at most 2 years back). */
+  historySince?: string;
   /** Last failed refresh: shown in Settings, and the next try waits REFRESH_AFTER_MS like a success. */
   error?: string;
   failedAt?: string;
@@ -287,17 +292,6 @@ async function refresh(prev: Cache | undefined): Promise<Cache> {
   const today = isoDay(Date.now());
   const followersNow = num(me.followers_count);
 
-  // Account days: the last 90, reading only the ones we don't have plus the last few.
-  const days: Record<string, Day> = {};
-  const want: string[] = [];
-  for (let i = 0; i < HISTORY_DAYS; i++) {
-    const date = isoDay(Date.now() - i * DAY_MS);
-    if (i < RECENT_DAYS || !prev?.days[date]) want.push(date);
-    else days[date] = prev.days[date];
-  }
-  const fresh = await pool(want, (date) => readDay(accountId, date, accessToken));
-  for (const d of fresh) days[d.date] = d;
-
   // Posts: every post (few hundred at most), newest first.
   const items: any[] = [];
   let next: string | undefined = `${GRAPH}/${accountId}/media?fields=${MEDIA_FIELDS}&limit=50`;
@@ -338,9 +332,26 @@ async function refresh(prev: Cache | undefined): Promise<Cache> {
     if (prev?.insightsAt[p.mediaId]) insightsAt[p.mediaId] = prev.insightsAt[p.mediaId];
   }
 
+  // Account days from the first post on: keep what we have, reread the last few
+  // (Instagram revises them) and fill the gaps, newest first, a batch per refresh.
+  const oldestPost = posts.reduce<string | undefined>((m, p) => (p.type !== 'Story' && (!m || p.publishedAt < m) ? p.publishedAt : m), undefined);
+  const floor = isoDay(Date.now() - MAX_HISTORY_DAYS * DAY_MS);
+  const historySince = oldestPost && oldestPost.slice(0, 10) > floor ? oldestPost.slice(0, 10) : floor;
+  const days: Record<string, Day> = {};
+  const missing: string[] = [];
+  for (let t = Date.now(), i = 0; isoDay(t) >= historySince; t -= DAY_MS, i++) {
+    const date = isoDay(t);
+    if (i >= RECENT_DAYS && prev?.days[date]) days[date] = prev.days[date];
+    else missing.push(date);
+  }
+  const want = missing.slice(0, RECENT_DAYS + BACKFILL_PER_REFRESH);
+  const fresh = await pool(want, (date) => readDay(accountId, date, accessToken));
+  for (const d of fresh) days[d.date] = d;
+
   return {
     scrapedAt: new Date().toISOString(),
     accountName: me.username ? `@${me.username}` : prev?.accountName,
+    historySince,
     followersNow,
     followersByDay: { ...prev?.followersByDay, ...(followersNow !== undefined ? { [today]: followersNow } : {}) },
     days,
@@ -356,7 +367,6 @@ function json(body: unknown, status = 200): Response {
 }
 
 function response(cache: Cache) {
-  const oldest = Object.keys(cache.days).sort()[0];
   return {
     integration: {
       platform: 'Instagram',
@@ -367,6 +377,7 @@ function response(cache: Cache) {
       oauthAvailable: false,
       browserAvailable: false,
       snapshotAt: cache.scrapedAt,
+      historySince: cache.historySince,
       ...(cache.error ? { error: cache.error } : {}),
     },
     scrape: {
@@ -374,7 +385,7 @@ function response(cache: Cache) {
       followersNow: cache.followersNow,
       followersByDay: cache.followersByDay,
       days: cache.days,
-      historySince: oldest,
+      historySince: cache.historySince ?? Object.keys(cache.days).sort()[0],
       posts: cache.posts,
       warnings: [],
     },

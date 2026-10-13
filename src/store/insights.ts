@@ -125,7 +125,11 @@ export const useInsights = create<InsightsState>()((set, get) => ({
   async refreshIntegrations(opts = {}) {
     try {
       const res = await api<IntegrationsResponse>('/integrations');
-      set({ integrations: res.integrations, serverError: null });
+      // Local app next to a hosted site with Instagram set up (WORKSPACE_URL): use the
+      // site's Instagram too, so both show the same numbers and full history.
+      const hosted = (await loadPublished(opts))?.platforms.Instagram?.integration;
+      const integrations = hosted?.mode === 'instagram_login' ? res.integrations.map((i) => (i.platform === 'Instagram' ? hosted : i)) : res.integrations;
+      set({ integrations, serverError: null });
     } catch (err) {
       // Hosted site: no server, but the local server may have published its data.
       const published = await loadPublished(opts);

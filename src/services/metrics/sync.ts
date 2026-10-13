@@ -68,12 +68,14 @@ export function buildSnapshots(
     last.followers = followersNow;
     last.followersEstimated = false;
   }
-  // Walk backwards: followers[d-1] = followers[d] - net[d].
+  // Walk backwards: followers[d-1] = followers[d] - net[d]. Today is still
+  // running, so a missing net change there counts as none so far.
   for (let i = out.length - 2; i >= 0; i--) {
     const next = out[i + 1];
     const cur = out[i];
-    if ((cur.followers === undefined || cur.followersEstimated) && next.followers !== undefined && next.netFollowers !== undefined) {
-      cur.followers = next.followers - next.netFollowers;
+    const net = next.netFollowers ?? (next.date === today ? 0 : undefined);
+    if ((cur.followers === undefined || cur.followersEstimated) && next.followers !== undefined && net !== undefined) {
+      cur.followers = next.followers - net;
       cur.followersEstimated = true;
     }
   }

@@ -225,7 +225,7 @@ Kalau Instagram tersambung lewat token (Instagram API with Instagram Login), web
 1. Vercel → **Settings → Environment Variables** → `IG_ACCESS_TOKEN` = token yang sama dengan yang di-paste di Settings → Integrations (diawali `IGAA…`).
 2. **Redeploy**.
 
-Website ngambil angka baru tiap dibuka (paling sering 15 menit sekali; **Reload data** maksa ambil sekarang) dan nyimpen hasilnya di Upstash. Selain itu Vercel Cron (`vercel.json`) ngejalanin update sekali sehari sekitar jam 08.00 WIB, jadi data, riwayat follower, dan token tetap jalan walau website gak dibuka. Token diperpanjang otomatis di sana. Kalau token diganti, cukup update `IG_ACCESS_TOKEN` lalu redeploy.
+Website ngambil angka baru tiap dibuka (paling sering 15 menit sekali; **Reload data** maksa ambil sekarang) dan nyimpen hasilnya di Upstash. Riwayat akun diambil sejak post pertama (Instagram nyimpen maksimal 2 tahun); akun baru keisi bertahap ±150 hari per update. Kalau `WORKSPACE_URL` diisi, localhost juga pakai data Instagram yang sama dari website. Selain itu Vercel Cron (`vercel.json`) ngejalanin update sekali sehari sekitar jam 08.00 WIB, jadi data, riwayat follower, dan token tetap jalan walau website gak dibuka. Token diperpanjang otomatis di sana. Kalau token diganti, cukup update `IG_ACCESS_TOKEN` lalu redeploy.
 
 ### Gambaran singkat
 

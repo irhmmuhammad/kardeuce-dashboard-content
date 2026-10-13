@@ -171,8 +171,8 @@ export const instagramProvider: ServerProvider = {
 
   async account(token, range) {
     const warnings = new Set<string>(['Instagram no longer reports account-level profile visits (profile_views was deprecated), so it shows as “—”.']);
-    const since = maxDate(range.since, addDaysUTC(todayUTC(), -89));
-    if (since !== range.since) warnings.add('Instagram account history is limited to the last 90 days; older days were skipped.');
+    const since = maxDate(range.since, addDaysUTC(todayUTC(), -729));
+    if (since !== range.since) warnings.add('Instagram keeps account history for 2 years; older days were skipped.');
     const profile = await fetchProfile(token.accessToken);
     const days: AccountDayInput[] = [];
 

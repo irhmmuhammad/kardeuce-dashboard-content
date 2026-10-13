@@ -183,13 +183,14 @@ app.notFound((c) => c.json({ error: { code: 'bad_request', message: `No route fo
 
 app.get('/api/health', (c) => c.json({ ok: true }));
 
-// Shared workspace lives on the hosted site (api/workspace.ts). With WORKSPACE_URL
-// set, the local app edits that same content plan instead of its own localStorage.
-app.all('/api/workspace', async (c) => {
+// The shared workspace and Instagram (api/workspace.ts, api/instagram-data.ts) live on
+// the hosted site. With WORKSPACE_URL set, the local app uses those same ones: one
+// content plan, and the same Instagram numbers and full history as the website.
+const forwardToHosted = (path: string) => async (c: Context) => {
   const base = env('WORKSPACE_URL')?.replace(/\/+$/, '');
-  if (!base) throw new ApiError('not_configured', 'No shared workspace: set WORKSPACE_URL in .env to use the hosted one.', { status: 404 });
+  if (!base) throw new ApiError('not_configured', 'No hosted site: set WORKSPACE_URL in .env to use it.', { status: 404 });
   const url = new URL(c.req.url);
-  const res = await safeFetchWorkspace(`${base}/api/workspace${url.search}`, {
+  const res = await safeFetchWorkspace(`${base}${path}${url.search}`, {
     method: c.req.method,
     headers: {
       'Content-Type': 'application/json',
@@ -198,13 +199,15 @@ app.all('/api/workspace', async (c) => {
     body: c.req.method === 'GET' ? undefined : await c.req.text(),
   });
   return new Response(await res.text(), { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
-});
+};
+app.all('/api/workspace', forwardToHosted('/api/workspace'));
+app.get('/api/instagram-data', forwardToHosted('/api/instagram-data'));
 
 async function safeFetchWorkspace(url: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
   } catch {
-    throw new ApiError('platform_error', `Can't reach the shared workspace at ${env('WORKSPACE_URL')}.`);
+    throw new ApiError('platform_error', `Can't reach the hosted site at ${env('WORKSPACE_URL')}.`);
   }
 }
 

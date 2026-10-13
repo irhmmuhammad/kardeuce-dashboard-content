@@ -19,7 +19,13 @@ export function remoteProvider(integration: IntegrationStatus): MetricsProvider 
     platform: integration.platform,
     kind: slug,
     listIncludesInsights: integration.mode === 'tiktok_business' || integration.mode === 'tiktok_studio' || integration.mode === 'meta_business_suite',
-    fullHistorySince: integration.mode === 'tiktok_studio' ? (integration.historySince ?? EARLIEST) : undefined,
+    // Sources that serve their whole history from a cache: every sync reads all of it.
+    fullHistorySince:
+      integration.mode === 'tiktok_studio'
+        ? (integration.historySince ?? EARLIEST)
+        : integration.mode === 'instagram_login' && integration.snapshotAt
+          ? integration.historySince
+          : undefined,
   };
   if (integration.snapshotAt) {
     const label = integration.mode === 'tiktok_studio' ? 'TikTok Studio' : 'Meta Business Suite';
