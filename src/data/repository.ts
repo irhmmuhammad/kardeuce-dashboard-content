@@ -1,4 +1,5 @@
 import { localStorageAdapter } from './adapters/localStorageAdapter';
+import { detectSharedWorkspace, sharedAdapter } from './adapters/sharedAdapter';
 import type { DataAdapter } from './adapters/types';
 import { createSeedSnapshot, EMPTY_METRICS, SCHEMA_VERSION } from './seed';
 import type { ContentItem, Idea, SocialPlatform, WorkspaceSnapshot } from '@/types';
@@ -6,10 +7,17 @@ import { SOCIAL_PLATFORMS } from '@shared/insights';
 import { isEmptyMetrics, legacyToPostMetrics } from '@/lib/analytics';
 
 /**
- * Single place that decides which backend is active.
- * Swap `localStorageAdapter` for a Supabase/Firebase adapter later.
+ * Single place that decides which backend is active: the shared workspace
+ * when the site has one (hosted on Vercel with Upstash, or the local server
+ * forwarding to it), else this browser's localStorage.
  */
-export const db: DataAdapter = localStorageAdapter;
+let active: DataAdapter = localStorageAdapter;
+export const db: DataAdapter = new Proxy({} as DataAdapter, { get: (_, key) => active[key as keyof DataAdapter] });
+
+/** Pick the backend; call once before loading the workspace. */
+export async function initDataBackend(): Promise<void> {
+  if (await detectSharedWorkspace()) active = sharedAdapter;
+}
 
 /** Fill in fields that may be missing from older/partial records. */
 export function normaliseContent(c: Partial<ContentItem> & { id: string }): ContentItem {

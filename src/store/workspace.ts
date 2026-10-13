@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ContentItem, Idea, Pillar, WorkspaceSettings, WorkspaceSnapshot } from '@/types';
-import { db, loadWorkspace, migrateMetricsV3, normaliseContent, normaliseIdea } from '@/data/repository';
+import { db, initDataBackend, loadWorkspace, migrateMetricsV3, normaliseContent, normaliseIdea } from '@/data/repository';
+import { pollSharedWorkspace } from '@/data/adapters/sharedAdapter';
 import { createSeedSnapshot, EMPTY_METRICS, SCHEMA_VERSION } from '@/data/seed';
 import { PILLAR_PALETTE } from '@/config/theme';
 import { uid } from '@/lib/utils';
@@ -67,6 +68,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
 
   async hydrate() {
     const started = performance.now();
+    await initDataBackend();
     const snapshot = await loadWorkspace();
     // Keep the skeleton visible for a beat so the UI doesn't flash.
     const elapsed = performance.now() - started;
@@ -79,6 +81,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
       settings: snapshot.settings,
       lastSavedAt: Date.now(),
     });
+    if (db.name === 'shared') startSharedSync();
   },
 
   /* ---------------- Content ---------------- */
@@ -369,4 +372,27 @@ export function usePillarByName() {
 export function useTeamMember() {
   const team = useWorkspace((s) => s.settings.team);
   return (id: string) => team.find((t) => t.id === id);
+}
+
+/* ---------------- Shared workspace: pick up other people's edits ---------------- */
+
+const SHARED_POLL_MS = 8000;
+
+function startSharedSync() {
+  const pull = () => {
+    if (document.visibilityState !== 'visible') return;
+    pollSharedWorkspace()
+      .then((snapshot) => {
+        if (!snapshot) return;
+        useWorkspace.setState({
+          contents: snapshot.contents.map(normaliseContent),
+          ideas: snapshot.ideas.map(normaliseIdea),
+          pillars: snapshot.pillars,
+          settings: snapshot.settings,
+        });
+      })
+      .catch((err: unknown) => console.warn('[workspace] could not check for updates:', err));
+  };
+  window.setInterval(pull, SHARED_POLL_MS);
+  document.addEventListener('visibilitychange', pull);
 }

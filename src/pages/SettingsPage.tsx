@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Check, Database, Download, Keyboard, Pencil, Plus, RotateCcw, Trash, Upload, X } from 'lucide-react';
 import { useWorkspace } from '@/store/workspace';
+import { db } from '@/data/repository';
 import { toast } from '@/store/toast';
 import { confirm } from '@/store/confirm';
 import { navigate } from '@/hooks/useRoute';
@@ -522,7 +523,10 @@ export function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Section title="Data & Backup" description="Everything is stored in this browser (localStorage).">
+        <Section
+          title="Data & Backup"
+          description={db.name === 'shared' ? 'Content, ideas, pillars and settings are shared with everyone who has this link. Insights stay in this browser.' : 'Everything is stored in this browser (localStorage).'}
+        >
           <div className="mb-3 flex items-center gap-2 rounded-xl bg-canvas px-3 py-2 text-[12px] text-ink-2">
             <Database className="h-3.5 w-3.5 text-ink-3" />
             {contents.length} content · {ideas.length} ideas · {storageKb.toFixed(0)} KB used

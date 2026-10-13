@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useWorkspace } from '@/store/workspace';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { db } from '@/data/repository';
 
 function ago(ts: number): string {
   const s = Math.round((Date.now() - ts) / 1000);
@@ -28,7 +29,7 @@ export function SaveIndicator({ dark }: { dark?: boolean }) {
   }, [lastSavedAt]);
   if (!lastSavedAt) return null;
   return (
-    <Tooltip content="Changes are saved automatically in this browser (localStorage).">
+    <Tooltip content={db.name === 'shared' ? 'Changes are saved automatically and shared with everyone who has this link.' : 'Changes are saved automatically in this browser (localStorage).'}>
       <span className={`inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap ${dark ? 'text-white/45' : 'text-ink-3'}`}>
         <span className={`h-1.5 w-1.5 rounded-full ${pulse ? 'animate-ping bg-brand' : dark ? 'bg-brand' : 'bg-emerald-500'}`} />
         Saved · {ago(lastSavedAt)}

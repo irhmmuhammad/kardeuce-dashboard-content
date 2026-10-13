@@ -206,6 +206,18 @@ Yang perlu diketahui:
 - Yang dikirim: followers, angka harian, dan post (caption, thumbnail, metrics). **Repo public = data ini bisa dilihat siapa aja.** Token dan login gak pernah ikut.
 - Karena server nge-push ke `main`, sebelum push kerjaan kamu sendiri jalankan `git pull --rebase` dulu.
 
+### Content Plan bareng di website (Vercel Storage)
+
+Content Plan, Content Bank, pillar dan settings bisa disimpan online, jadi semua orang yang buka link website lihat dan edit data yang sama (update sendiri tiap ±8 detik).
+
+1. Vercel → project ini → **Storage** → **Create Database** → **Upstash for Redis** (free) → connect ke project. Vercel otomatis nambahin `KV_REST_API_URL` dan `KV_REST_API_TOKEN`.
+2. (Opsional) **Settings → Environment Variables** → `WORKSPACE_EDIT_CODE` = kode bebas. Kalau diisi, yang mau ngedit harus masukin kode itu sekali per browser. Kalau kosong, siapa aja yang punya link bisa ngedit.
+3. **Redeploy** (Deployments → ⋯ → Redeploy) biar env-nya kebaca.
+4. Pindahin data lama: di app lokal (`localhost:5173`) **Settings → Export backup**, lalu di website **Settings → Restore from backup**.
+5. (Opsional) Biar app lokal juga ngedit data yang sama: isi `WORKSPACE_URL=https://alamat-website-kamu.vercel.app` di `.env`, restart `npm run dev`.
+
+Sebelum Upstash di-connect, website tetap jalan seperti biasa (data di browser masing-masing). Data insights tetap per browser karena asalnya dari `live-data.json`.
+
 ### Gambaran singkat
 
 | | Instagram | TikTok (Business API) | TikTok (Display API, cadangan) |

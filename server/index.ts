@@ -183,6 +183,31 @@ app.notFound((c) => c.json({ error: { code: 'bad_request', message: `No route fo
 
 app.get('/api/health', (c) => c.json({ ok: true }));
 
+// Shared workspace lives on the hosted site (api/workspace.ts). With WORKSPACE_URL
+// set, the local app edits that same content plan instead of its own localStorage.
+app.all('/api/workspace', async (c) => {
+  const base = env('WORKSPACE_URL')?.replace(/\/+$/, '');
+  if (!base) throw new ApiError('not_configured', 'No shared workspace: set WORKSPACE_URL in .env to use the hosted one.', { status: 404 });
+  const url = new URL(c.req.url);
+  const res = await safeFetchWorkspace(`${base}/api/workspace${url.search}`, {
+    method: c.req.method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(c.req.header('x-edit-code') ? { 'x-edit-code': c.req.header('x-edit-code')! } : {}),
+    },
+    body: c.req.method === 'GET' ? undefined : await c.req.text(),
+  });
+  return new Response(await res.text(), { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+});
+
+async function safeFetchWorkspace(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new ApiError('platform_error', `Can't reach the shared workspace at ${env('WORKSPACE_URL')}.`);
+  }
+}
+
 app.get('/api/integrations', (c) => {
   const body: IntegrationsResponse = { integrations: [status('Instagram'), status('TikTok')] };
   return c.json(body);
