@@ -30,7 +30,10 @@ async function igFetch(page: Page, path: string): Promise<any> {
     { path, appId: IG_WEB_APP_ID },
   );
   if (res.status === 401 || res.status === 403) throw new ApiError('token_expired', 'Instagram login has expired. Click “Connect via browser” in Settings → Integrations.');
-  if (res.status === 429) throw new ApiError('rate_limited', 'Instagram is rate limiting the web session. Try again in an hour.', { retryAfter: 3600 });
+  if (res.status === 429) {
+    console.warn(`[browser] Instagram: HTTP 429 on ${path.split('?')[0]}`);
+    throw new ApiError('rate_limited', 'Instagram is rate limiting the web session (too many requests).', { retryAfter: 3600 });
+  }
   try {
     return JSON.parse(res.text);
   } catch {

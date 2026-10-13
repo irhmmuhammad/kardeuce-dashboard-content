@@ -1,107 +1,137 @@
 import type { Page } from 'playwright-core';
-import type { PostInput, PostMetrics } from '../../shared/insights.ts';
-import { debugDump, harvestJson, hasCookie, parseJsonish, scrollToLoad, sleep, type Harvest } from '../browser/chrome.ts';
-import { mergeMetrics, percent, pick, seconds, str, stripUndefined, toISO, walk } from '../browser/extract.ts';
-import { env } from './types.ts';
+import type { AccountDayInput, PostInput, PostMetrics } from '../../shared/insights.ts';
+import { ApiError } from '../errors.ts';
+import { addDaysUTC, todayUTC } from '../dates.ts';
+import { debugDump, hasCookie, sleep, type Harvest } from '../browser/chrome.ts';
+import { stripUndefined, toISO } from '../browser/extract.ts';
+import { env, num } from './types.ts';
 import { browserProvider } from './browserProvider.ts';
 
 /**
- * TikTok Studio, read through the user's logged-in Chrome profile.
- * Sources, all fetched by the pages themselves while we browse:
- *  - tiktok.com/tiktokstudio/content  → per-video stats (+ watch time when shown)
- *  - tiktok.com/tiktokstudio/analytics → account overview
- *  - tiktok.com/@username             → follower count + video list fallback
+ * TikTok Studio, read through the user's logged-in Chrome profile. We open
+ * Studio once and call the same JSON endpoints its pages use (from inside the
+ * page, so the session cookies and TikTok's request signing apply):
+ *  - /tiktokstudio/api/web/user                → account id, username, creation date
+ *  - /tiktokstudio/api/web/relation/...Count   → follower count now
+ *  - /tiktok/creator/manage/item_list/v1/      → every post with lifetime stats (paged)
+ *  - /aweme/v2/data/insight/                   → daily account history since the account was created
+ *
+ * Only these endpoints are read: scraping whole pages also picked up other
+ * creators' videos from Studio's inspiration feeds.
  */
 
 const LABEL = 'TikTok Studio';
-const ID_KEYS = ['aweme_id', 'awemeId', 'item_id', 'itemId', 'id', 'video_id'];
-const VIEW_KEYS = ['play_count', 'playCount', 'view_count', 'viewCount', 'vv', 'video_views', 'views'];
+const PAGE_SIZE = 50;
+const MAX_PAGES = 200;
+/** Days per insight request; one request covered 1000 days in testing. */
+const HISTORY_CHUNK = 365;
 
-function cover(obj: Record<string, unknown>): string {
-  const candidates = [obj.cover, obj.cover_url, obj.coverUrl, obj.cover_image_url, (obj.video as any)?.cover, (obj.video as any)?.origin_cover, (obj.video as any)?.originCover];
-  for (const c of candidates) {
-    if (typeof c === 'string' && c.startsWith('http')) return c;
-    const list = (c as any)?.url_list ?? (c as any)?.urlList;
-    if (Array.isArray(list) && typeof list[0] === 'string') return list[0];
+/** Insight series → AccountDayInput field. */
+const SERIES = {
+  vv_history: 'views',
+  pv_history: 'profileVisits',
+  like_history: 'likes',
+  comment_history: 'comments',
+  share_history: 'shares',
+  follower_num_history: 'followers',
+  net_follower_history: 'netFollowers',
+  reached_audience_history: 'reach',
+} as const satisfies Record<string, keyof AccountDayInput>;
+
+async function studioFetch(page: Page, path: string, init?: { method: string; body: string }): Promise<any> {
+  const res = await page.evaluate(
+    async ({ path, init }) => {
+      const r = await fetch(path, { credentials: 'include', ...(init ? { ...init, headers: { 'content-type': 'application/json' } } : {}) });
+      return { status: r.status, text: await r.text() };
+    },
+    { path, init },
+  );
+  if (res.status === 401 || res.status === 403) throw new ApiError('token_expired', `${LABEL} login has expired. Click “Connect via browser” in Settings → Integrations.`);
+  if (res.status === 429) throw new ApiError('rate_limited', `${LABEL} is rate limiting the session (too many requests).`, { retryAfter: 3600 });
+  let json: any;
+  try {
+    json = JSON.parse(res.text);
+  } catch {
+    throw new ApiError('platform_error', `${LABEL} returned an unexpected page for ${path.split('?')[0]} (HTTP ${res.status}).`);
   }
-  return '';
+  const code = json?.status_code ?? json?.statusCode ?? json?.BaseResp?.StatusCode;
+  if (code === 8 || code === 10000) throw new ApiError('token_expired', `${LABEL} login has expired. Click “Connect via browser” in Settings → Integrations.`);
+  if (code) throw new ApiError('platform_error', `${LABEL}: ${path.split('?')[0]} failed (${json.status_msg || json.statusMsg || code}).`);
+  return json;
 }
 
-function metricsOf(obj: Record<string, unknown>): PostMetrics {
-  return stripUndefined<PostMetrics>({
-    views: pick(obj, VIEW_KEYS),
-    reach: pick(obj, ['reach', 'unique_viewers', 'reached_audience', 'reachedAudience']),
-    likes: pick(obj, ['digg_count', 'diggCount', 'like_count', 'likeCount', 'likes']),
-    comments: pick(obj, ['comment_count', 'commentCount', 'comments']),
-    shares: pick(obj, ['share_count', 'shareCount', 'shares']),
-    saves: pick(obj, ['collect_count', 'collectCount', 'favorite_count', 'favoriteCount', 'favorites']),
-    follows: pick(obj, ['new_followers', 'newFollowers', 'follower_gain']),
-    avgWatchTime: seconds(pick(obj, ['avg_watch_time', 'average_watch_time', 'avgWatchTime', 'avg_play_time', 'avg_time_watched'])),
-    totalWatchTime: seconds(pick(obj, ['total_watch_time', 'totalWatchTime', 'total_play_time', 'total_time_watched'])),
-    completionRate: percent(pick(obj, ['finish_rate', 'finishRate', 'full_video_watched_rate', 'completion_rate', 'completionRate'])),
+function toPost(item: any, username: string | undefined): PostInput | null {
+  const id = String(item.item_id ?? '');
+  const publishedAt = toISO(item.create_time ?? item.post_time);
+  if (!/^\d{15,}$/.test(id) || !publishedAt) return null;
+  const photo = item.item_type === 2 || (Array.isArray(item.photo_list) && item.photo_list.length > 0 && !item.duration);
+  const metrics: PostMetrics = stripUndefined({
+    views: num(item.play_count),
+    likes: num(item.like_count),
+    comments: num(item.comment_count),
+    shares: num(item.share_count),
+    saves: num(item.favorite_count),
   });
+  return {
+    platform: 'TikTok',
+    mediaId: id,
+    permalink: username ? `https://www.tiktok.com/@${username}/${photo ? 'photo' : 'video'}/${id}` : `https://www.tiktok.com/video/${id}`,
+    type: photo ? 'Carousel' : 'Video',
+    publishedAt,
+    caption: item.desc ?? '',
+    thumbnail: (Array.isArray(item.cover_url) ? item.cover_url[0] : item.cover_url) ?? '',
+    metrics,
+  };
 }
 
-function extractPosts(harvest: Harvest[], username: string | undefined): PostInput[] {
-  const byId = new Map<string, PostInput>();
-  for (const h of harvest) {
-    for (const obj of walk(h.json)) {
-      const id = str(obj, ID_KEYS);
-      if (!id || !/^\d{15,}$/.test(id)) continue;
-      if (pick(obj, VIEW_KEYS) === undefined && pick(obj, ['digg_count', 'diggCount']) === undefined) continue;
-      const metrics = metricsOf(obj);
-      const prev = byId.get(id);
-      if (prev) {
-        prev.metrics = mergeMetrics(prev.metrics, metrics);
-        prev.caption ||= str(obj, ['desc', 'description', 'title', 'video_description']) ?? '';
-        prev.thumbnail ||= cover(obj);
-        if (!prev.publishedAt) prev.publishedAt = toISO(obj.create_time ?? obj.createTime ?? obj.publish_time ?? obj.post_time) ?? '';
-        continue;
-      }
-      byId.set(id, {
-        platform: 'TikTok',
-        mediaId: id,
-        permalink: username ? `https://www.tiktok.com/@${username}/video/${id}` : `https://www.tiktok.com/video/${id}`,
-        type: 'Video',
-        publishedAt: toISO(obj.create_time ?? obj.createTime ?? obj.publish_time ?? obj.post_time) ?? '',
-        caption: str(obj, ['desc', 'description', 'title', 'video_description']) ?? '',
-        thumbnail: cover(obj),
-        metrics,
+async function readPosts(page: Page, username: string | undefined, raw: Harvest[]): Promise<PostInput[]> {
+  const posts = new Map<string, PostInput>();
+  let cursor = 0;
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const body = JSON.stringify({ cursor, size: PAGE_SIZE, query: { sort_orders: [{ field_name: 'post_time', order: 2 }], conditions: [], is_recent_posts: false } });
+    const json = await studioFetch(page, '/tiktok/creator/manage/item_list/v1/?locale=en', { method: 'POST', body });
+    raw.push({ url: 'item_list', json });
+    for (const item of json.item_list ?? []) {
+      const p = toPost(item, username);
+      if (p) posts.set(p.mediaId, p);
+    }
+    if (!json.has_more || json.cursor === undefined || json.cursor === cursor) break;
+    cursor = json.cursor;
+    await sleep(700 + Math.random() * 700);
+  }
+  return [...posts.values()];
+}
+
+/**
+ * Daily series from `since` to yesterday (today isn't final yet). With
+ * tz_offset=0 the days are UTC days, like the rest of the server. A request
+ * {days: S, end_days: E} returns one point per day from today-S to today-E.
+ */
+async function readHistory(page: Page, since: string, raw: Harvest[]): Promise<AccountDayInput[]> {
+  const today = todayUTC();
+  const total = Math.max(1, Math.round((Date.parse(today) - Date.parse(since)) / 86400_000));
+  const byDate = new Map<string, AccountDayInput>();
+  for (let end = 1; end <= total; end += HISTORY_CHUNK) {
+    const start = Math.min(end + HISTORY_CHUNK - 1, total);
+    const types = Object.keys(SERIES).map((t) => ({ insigh_type: t, days: start, end_days: end }));
+    const json = await studioFetch(page, `/aweme/v2/data/insight/?locale=en&tz_offset=0&type_requests=${encodeURIComponent(JSON.stringify(types))}`);
+    raw.push({ url: 'insight', json });
+    const first = addDaysUTC(today, -start);
+    for (const [series, field] of Object.entries(SERIES)) {
+      const points: { status?: number; value?: unknown }[] = Array.isArray(json[series]) ? json[series] : [];
+      points.forEach((pt, i) => {
+        // status 2 = not available yet (recent days) / before the account existed.
+        if (pt.status || num(pt.value) === undefined) return;
+        const date = addDaysUTC(first, i);
+        if (date < since) return;
+        const day = byDate.get(date) ?? { platform: 'TikTok', date };
+        (day as unknown as Record<string, unknown>)[field] = num(pt.value);
+        byDate.set(date, day);
       });
     }
+    await sleep(700 + Math.random() * 700);
   }
-  return [...byId.values()].filter((p) => p.publishedAt);
-}
-
-function findAccount(harvest: Harvest[], hint?: string): { username?: string; followers?: number; id?: string } {
-  let best: { username?: string; followers?: number; id?: string } = {};
-  for (const h of harvest) {
-    for (const obj of walk(h.json)) {
-      const username = str(obj, ['unique_id', 'uniqueId', 'username']);
-      if (!username || /\s/.test(username)) continue;
-      if (hint && username.toLowerCase() !== hint.toLowerCase()) continue;
-      const followers = pick(obj, ['follower_count', 'followerCount', 'fans', 'fans_count']);
-      if (followers === undefined && best.username) continue;
-      if (followers !== undefined || !best.username) best = { username, followers: followers ?? best.followers, id: str(obj, ['uid', 'id', 'user_id']) };
-    }
-  }
-  return best;
-}
-
-async function rehydrationData(page: Page, sink: Harvest[]) {
-  const text = await page
-    .locator('script#__UNIVERSAL_DATA_FOR_REHYDRATION__, script#SIGI_STATE')
-    .first()
-    .textContent({ timeout: 5000 })
-    .catch(() => null);
-  if (text) for (const json of parseJsonish(text)) sink.push({ url: page.url(), json });
-}
-
-async function visit(page: Page, url: string, scrolls: number) {
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => undefined);
-  await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => undefined);
-  await sleep(2000);
-  await scrollToLoad(page, scrolls);
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export const tiktokStudioProvider = browserProvider({
@@ -113,31 +143,42 @@ export const tiktokStudioProvider = browserProvider({
   isLoggedIn: (ctx) => hasCookie(ctx, 'tiktok.com', 'sessionid'),
 
   async scrape(ctx) {
-    const harvest: Harvest[] = [];
     const warnings: string[] = [];
+    const raw: Harvest[] = [];
     const page = await ctx.newPage();
-    await harvestJson(page, (u) => /tiktok\.com\//.test(u) && !/\.(js|css|png|jpe?g|webp|woff2?)(\?|$)/.test(u), harvest);
+    await page.goto('https://www.tiktok.com/tiktokstudio', { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => undefined);
+    // Studio's scripts install TikTok's request signing on fetch; give them a moment.
+    await sleep(4000);
+    if (!/tiktokstudio/.test(page.url())) throw new ApiError('token_expired', `${LABEL} login has expired. Click “Connect via browser” in Settings → Integrations.`);
 
-    await visit(page, 'https://www.tiktok.com/tiktokstudio/content', 8);
-    await visit(page, 'https://www.tiktok.com/tiktokstudio/analytics', 1);
+    const user = await studioFetch(page, '/tiktokstudio/api/web/user?needIsVerified=true');
+    const base = user.userBaseInfo?.UserProfile?.UserBase ?? {};
+    const userId = String(user.userId ?? base.Id ?? '');
+    const username = env('TIKTOK_USERNAME')?.replace(/^@/, '') || base.UniqId || undefined;
+    const createdAt = toISO(base.CreateTime);
 
-    const hint = env('TIKTOK_USERNAME')?.replace(/^@/, '');
-    let account = findAccount(harvest, hint);
-    const username = hint ?? account.username;
-    if (username) {
-      await visit(page, `https://www.tiktok.com/@${username}`, 6);
-      await rehydrationData(page, harvest);
-      account = { ...account, ...findAccount(harvest, username) };
-    } else {
-      warnings.push(`${LABEL}: couldn't detect your username. Set TIKTOK_USERNAME in .env to read followers.`);
+    let followersNow: number | undefined;
+    try {
+      const rel = await studioFetch(page, `/tiktokstudio/api/web/relation/multiGetFollowRelationCount?userId=${encodeURIComponent(userId)}&locale=en`);
+      followersNow = num(rel.FollowerCount?.[userId]);
+    } catch (err) {
+      warnings.push(`${LABEL}: couldn't read the follower count (${err instanceof Error ? err.message : err}).`);
     }
 
-    debugDump('TikTok', harvest);
-    const posts = extractPosts(harvest, username);
-    if (!posts.length) warnings.push(`${LABEL}: no videos found. Run once with SCRAPE_DEBUG=true in .env and check server/.data/scrape-debug.`);
-    if (posts.length && posts.every((p) => p.metrics.avgWatchTime === undefined)) {
-      warnings.push(`${LABEL}: watch time / completion rate weren't on the pages we read; views, likes, comments, shares and saves are.`);
+    const posts = await readPosts(page, username, raw);
+    const oldestPost = posts.reduce<string | undefined>((m, p) => (!m || p.publishedAt < m ? p.publishedAt : m), undefined);
+    const historySince = (createdAt ?? oldestPost ?? addDaysUTC(todayUTC(), -365)).slice(0, 10);
+
+    let days: AccountDayInput[] = [];
+    try {
+      days = await readHistory(page, historySince, raw);
+    } catch (err) {
+      warnings.push(`${LABEL}: daily account history failed (${err instanceof Error ? err.message : err}).`);
     }
-    return { accountName: username, accountId: account.id, followersNow: account.followers, posts, warnings };
+    debugDump('TikTok', raw);
+
+    if (!posts.length) warnings.push(`${LABEL}: no posts found on this account.`);
+    warnings.push(`${LABEL}: watch time and completion rate per video aren't read yet; views, likes, comments, shares and saves are.`);
+    return { accountName: username, accountId: userId, followersNow, posts, days, historySince, warnings };
   },
 });

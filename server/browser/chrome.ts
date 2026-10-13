@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { chromium, type BrowserContext, type Page, type Response } from 'playwright-core';
 import type { SocialPlatform } from '../../shared/insights.ts';
 import { ApiError } from '../errors.ts';
@@ -56,19 +58,43 @@ export function withProfileLock<T>(platform: SocialPlatform, task: () => Promise
   return next;
 }
 
+/**
+ * Headless Chrome says "HeadlessChrome/<version>" in its user agent. The
+ * session was logged in from the normal window, and Instagram throttles it
+ * (HTTP 429) once it shows up from a headless browser, so headless runs send
+ * the regular Chrome user agent. Read once per server run from the installed Chrome.
+ */
+let regularUserAgent: string | undefined;
+
+async function userAgentFor(start: (userAgent?: string) => Promise<BrowserContext>): Promise<string> {
+  if (regularUserAgent) return regularUserAgent;
+  const probe = await start();
+  try {
+    const page = probe.pages()[0] ?? (await probe.newPage());
+    // Runs in the page; the server tsconfig has no DOM types.
+    const ua = String(await page.evaluate('navigator.userAgent'));
+    return (regularUserAgent = ua.replace('HeadlessChrome/', 'Chrome/'));
+  } finally {
+    await probe.close().catch(() => undefined);
+  }
+}
+
 export async function launch(platform: SocialPlatform, opts: { headless: boolean }): Promise<BrowserContext> {
   const executablePath = chromePath();
   if (!executablePath) throw new ApiError('not_configured', 'Google Chrome was not found. Install Chrome, or set CHROME_PATH in .env.');
   mkdirSync(profileDir(platform), { recursive: true });
-  try {
-    return await chromium.launchPersistentContext(profileDir(platform), {
+  const start = (userAgent?: string) =>
+    chromium.launchPersistentContext(profileDir(platform), {
       executablePath,
       headless: opts.headless,
       viewport: opts.headless ? { width: 1366, height: 900 } : null,
       locale: 'en-US',
+      userAgent,
       args: ['--disable-blink-features=AutomationControlled', '--no-first-run', '--no-default-browser-check'],
       ignoreDefaultArgs: ['--enable-automation'],
     });
+  try {
+    return await start(opts.headless ? await userAgentFor(start) : undefined);
   } catch (err) {
     const reason = err instanceof Error ? err.message.split('\n')[0] : String(err);
     throw new ApiError('internal', `Could not start Chrome for ${platform}: ${reason}`);
@@ -80,6 +106,23 @@ export const headless = () => env('BROWSER_HEADLESS') !== 'false';
 export async function hasCookie(ctx: BrowserContext, domain: string, name: string): Promise<boolean> {
   const cookies = await ctx.cookies();
   return cookies.some((c) => c.name === name && c.domain.endsWith(domain) && !!c.value && (c.expires === -1 || c.expires * 1000 > Date.now()));
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * macOS: the login window is a separate Chrome app instance (own profile), so
+ * it often opens behind the user's normal Chrome. Bring it to the front.
+ * NSRunningApplication needs no Accessibility permission.
+ */
+export async function focusChrome(platform: SocialPlatform) {
+  if (process.platform !== 'darwin') return;
+  const { stdout } = await execFileAsync('ps', ['-ax', '-ww', '-o', 'pid=,command=']).catch(() => ({ stdout: '' }));
+  const main = stdout.split('\n').find((l) => l.includes(`--user-data-dir=${profileDir(platform)}`) && !l.includes('--type='));
+  const pid = Number(main?.trim().split(/\s+/)[0]);
+  if (!pid) return;
+  const script = `ObjC.import('Cocoa'); const a = $.NSRunningApplication.runningApplicationWithProcessIdentifier(${pid}); if (!a.isNil()) a.activateWithOptions(3);`;
+  await execFileAsync('osascript', ['-l', 'JavaScript', '-e', script]).catch(() => undefined);
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -108,6 +151,7 @@ export async function interactiveLogin(
         await p.goto(url).catch(() => undefined);
       }
       await first.bringToFront().catch(() => undefined);
+      await focusChrome(platform);
       // Wait for the user to close the window: they may still be logging in
       // to the optional second site after the required one is done.
       const deadline = Date.now() + timeoutMs;

@@ -251,7 +251,7 @@ export type ColumnKey =
   | 'kpi'
   | 'notes';
 
-export type InsightsPeriodKind = '7d' | '28d' | '90d' | 'month' | 'custom';
+export type InsightsPeriodKind = '7d' | '28d' | '90d' | 'month' | 'all' | 'custom';
 export type PlatformFilter = 'all' | SocialPlatform;
 
 export type RouteKey = 'dashboard' | 'strategy' | 'plan' | 'calendar' | 'bank' | 'performance' | 'settings';

@@ -2,8 +2,8 @@ import type { BrowserContext } from 'playwright-core';
 import type { AccountDayInput, IntegrationMode, PostInput, SocialPlatform } from '../../shared/insights.ts';
 import { ApiError } from '../errors.ts';
 import { todayUTC } from '../dates.ts';
-import { browserAvailable, clearProfile, headless, interactiveLogin, launch, withProfileLock } from '../browser/chrome.ts';
-import { readScrape, writeScrape, type ScrapeResult } from '../browser/cache.ts';
+import { browserAvailable, clearProfile, focusChrome, headless, interactiveLogin, launch, withProfileLock } from '../browser/chrome.ts';
+import { clearFailure, readFailure, readScrape, writeFailure, writeScrape, type ScrapeResult } from '../browser/cache.ts';
 import { tokenStore, type StoredToken } from '../tokenStore.ts';
 import type { ServerProvider } from './types.ts';
 
@@ -12,6 +12,10 @@ export interface ScrapeOutput {
   accountId?: string;
   followersNow?: number;
   posts: PostInput[];
+  /** Daily account history, when the dashboard offers it. */
+  days?: AccountDayInput[];
+  /** First day the history covers (YYYY-MM-DD). */
+  historySince?: string;
   warnings: string[];
 }
 
@@ -27,6 +31,25 @@ export interface BrowserScraper {
 
 /** Reuse a scrape this recent instead of opening Chrome again (one sync calls account + media + insights). */
 const REUSE_MS = 15 * 60_000;
+/** A scrape that takes longer is stuck (a page that never answers): close Chrome and fail. */
+const SCRAPE_TIMEOUT_MS = 5 * 60_000;
+/**
+ * After a failed scrape, answer with the same error this long (one sync calls
+ * refresh three times); a rate limit is held until its retry time. Kept on disk
+ * (server/.data) so a server restart doesn't retry right away.
+ */
+const FAIL_REUSE_MS = 2 * 60_000;
+
+function withTimeout<T>(task: Promise<T>, ms: number, onTimeout: () => void, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      onTimeout();
+      reject(new ApiError('platform_error', message));
+    }, ms);
+  });
+  return Promise.race([task, timeout]).finally(() => clearTimeout(timer));
+}
 
 export interface BrowserProvider extends ServerProvider {
   platform: SocialPlatform;
@@ -38,6 +61,7 @@ export interface BrowserProvider extends ServerProvider {
 
 export function browserProvider(s: BrowserScraper): BrowserProvider {
   let inFlight: Promise<ScrapeResult> | null = null;
+  let loginInFlight: Promise<StoredToken> | null = null;
 
   const runScrape = () =>
     withProfileLock(s.platform, async () => {
@@ -46,12 +70,19 @@ export function browserProvider(s: BrowserScraper): BrowserProvider {
         if (!(await s.isLoggedIn(ctx))) {
           throw new ApiError('token_expired', `${s.label} login has expired. Click “Connect via browser” in Settings → Integrations and log in again.`);
         }
-        const out = await s.scrape(ctx);
+        const out = await withTimeout(
+          s.scrape(ctx),
+          SCRAPE_TIMEOUT_MS,
+          () => void ctx.close().catch(() => undefined),
+          `${s.label}: sync took longer than ${SCRAPE_TIMEOUT_MS / 60_000} minutes and was stopped. It will retry on the next sync.`,
+        );
         const prev = readScrape(s.platform);
         const result: ScrapeResult = {
           scrapedAt: new Date().toISOString(),
           followersNow: out.followersNow,
           followersByDay: { ...prev?.followersByDay, ...(out.followersNow !== undefined ? { [todayUTC()]: out.followersNow } : {}) },
+          days: { ...prev?.days, ...Object.fromEntries((out.days ?? []).map((d) => [d.date, d])) },
+          historySince: out.historySince ?? prev?.historySince,
           posts: out.posts,
           warnings: out.warnings,
         };
@@ -73,8 +104,53 @@ export function browserProvider(s: BrowserScraper): BrowserProvider {
   const refresh = async ({ force = false } = {}) => {
     const cached = readScrape(s.platform);
     if (!force && cached && Date.now() - Date.parse(cached.scrapedAt) < REUSE_MS) return cached;
-    inFlight ??= runScrape().finally(() => (inFlight = null));
+    const failure = readFailure(s.platform);
+    // "Sync now" may retry other failures, but never a rate limit before it expires.
+    if (failure && (failure.code === 'rate_limited' || !force)) {
+      const left = Math.max(60, Math.ceil((Date.parse(failure.until) - Date.now()) / 1000));
+      throw new ApiError(failure.code, failure.message, failure.code === 'rate_limited' ? { retryAfter: left } : {});
+    }
+    inFlight ??= runScrape()
+      .then(
+        (r) => {
+          clearFailure(s.platform);
+          return r;
+        },
+        (err) => {
+          // Unexpected errors keep the generic message app.onError would show.
+          const e = err instanceof ApiError ? err : new ApiError('internal', 'Unexpected server error. Check the API terminal for details.');
+          const pauseMs = e.code === 'rate_limited' ? (e.retryAfter ?? 3600) * 1000 : FAIL_REUSE_MS;
+          writeFailure(s.platform, { until: new Date(Date.now() + pauseMs).toISOString(), code: e.code, message: e.message });
+          throw err;
+        },
+      )
+      .finally(() => (inFlight = null));
     return inFlight;
+  };
+
+  const doLogin = async (): Promise<StoredToken> => {
+    const ok = await interactiveLogin(s.platform, s.loginUrls, s.isLoggedIn);
+    if (!ok) throw new ApiError('permission', `${s.label}: login was not finished. Log in in the Chrome window, then close it.`);
+    const now = new Date().toISOString();
+    const token: StoredToken = {
+      platform: s.platform,
+      mode: s.mode,
+      accessToken: '',
+      issuedAt: now,
+      accountId: '',
+      accountName: '',
+      connectedAt: now,
+    };
+    tokenStore.set(token);
+    // A new login fixes an expired session, not a rate limit: retrying early only extends the block.
+    if (readFailure(s.platform)?.code !== 'rate_limited') clearFailure(s.platform);
+    // First scrape right away so the account name shows up in Settings.
+    try {
+      await refresh({ force: true });
+    } catch (err) {
+      console.warn(`[browser] ${s.platform}: first sync failed:`, err instanceof Error ? err.message : err);
+    }
+    return tokenStore.get(s.platform) ?? token;
   };
 
   const noToken = () => new ApiError('bad_request', `${s.label} connects through the browser and doesn't use tokens.`);
@@ -98,37 +174,30 @@ export function browserProvider(s: BrowserScraper): BrowserProvider {
     ensureFresh: async (token) => token,
     revoke: () => clearProfile(s.platform),
 
-    async login() {
-      const ok = await interactiveLogin(s.platform, s.loginUrls, s.isLoggedIn);
-      if (!ok) throw new ApiError('permission', `${s.label}: login was not finished. Log in in the Chrome window, then close it.`);
-      const now = new Date().toISOString();
-      const token: StoredToken = {
-        platform: s.platform,
-        mode: s.mode,
-        accessToken: '',
-        issuedAt: now,
-        accountId: '',
-        accountName: '',
-        connectedAt: now,
-      };
-      tokenStore.set(token);
-      // First scrape right away so the account name shows up in Settings.
-      try {
-        await refresh({ force: true });
-      } catch (err) {
-        console.warn(`[browser] ${s.platform}: first sync failed:`, err instanceof Error ? err.message : err);
+    login() {
+      // A second click while the window is open: show that window again instead
+      // of queueing a new one behind the profile lock.
+      if (loginInFlight) {
+        void focusChrome(s.platform);
+        return loginInFlight;
       }
-      return tokenStore.get(s.platform) ?? token;
+      loginInFlight = doLogin().finally(() => (loginInFlight = null));
+      return loginInFlight;
     },
 
     refresh,
 
     async account(_token, range) {
       const r = await refresh();
-      const days: AccountDayInput[] = Object.entries(r.followersByDay)
-        .filter(([d]) => d >= range.since && d <= range.until)
-        .map(([date, followers]) => ({ platform: s.platform, date, followers }));
-      const warnings = [`${s.label}: daily reach/views aren't read from the dashboard yet; follower history builds up from each sync.`];
+      // Dashboard history first; follower counts seen by our own syncs fill the gaps (e.g. today).
+      const byDate = new Map<string, AccountDayInput>(Object.entries(r.days ?? {}).map(([date, d]) => [date, { ...d }]));
+      for (const [date, followers] of Object.entries(r.followersByDay)) {
+        const day = byDate.get(date) ?? { platform: s.platform, date };
+        day.followers ??= followers;
+        byDate.set(date, day);
+      }
+      const days = [...byDate.values()].filter((d) => d.date >= range.since && d.date <= range.until).sort((a, b) => a.date.localeCompare(b.date));
+      const warnings = r.days ? [] : [`${s.label}: daily reach/views aren't read from the dashboard yet; follower history builds up from each sync.`];
       return { followersNow: r.followersNow, days, warnings };
     },
 

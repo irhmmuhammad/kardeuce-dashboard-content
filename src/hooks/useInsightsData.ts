@@ -27,9 +27,10 @@ export function useInsightsData() {
   const contents = useWorkspace((s) => s.contents);
 
   return useMemo(() => {
-    const period = resolvePeriod(periodKind, custom);
-    const prev = previousPeriod(period);
     const platforms = platformsOf(platformFilter);
+    const earliest = [...snapshots.filter((s) => platforms.includes(s.platform)).map((s) => s.date), ...posts.filter((p) => platforms.includes(p.platform)).map((p) => p.publishedAt.slice(0, 10))].sort()[0];
+    const period = resolvePeriod(periodKind, custom, earliest);
+    const prev = previousPeriod(period);
     const kpisBy: Partial<Record<SocialPlatform, AccountKpis>> = {};
     const prevKpisBy: Partial<Record<SocialPlatform, AccountKpis>> = {};
     for (const p of platforms) {

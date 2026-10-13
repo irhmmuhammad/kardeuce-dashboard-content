@@ -58,18 +58,6 @@ export function stripUndefined<T extends object>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 }
 
-/** Rates may come as 0–1 or 0–100. */
-export function percent(v: number | undefined): number | undefined {
-  if (v === undefined) return undefined;
-  return v <= 1 ? Math.round(v * 1000) / 10 : Math.round(v * 10) / 10;
-}
-
-/** Watch time may come in ms or seconds. */
-export function seconds(v: number | undefined): number | undefined {
-  if (v === undefined) return undefined;
-  return v > 1000 ? Math.round(v / 100) / 10 : v;
-}
-
 /** Unix seconds / ms / ISO string → ISO timestamp. */
 export function toISO(v: unknown): string | undefined {
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return v;
