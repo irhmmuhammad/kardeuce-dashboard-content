@@ -6,6 +6,9 @@
  *   GET /api/instagram-data          → { integration, scrape } (scrape = ScrapeResult shape)
  *   GET /api/instagram-data?force=1  → refresh now (still at most once a minute)
  *
+ * vercel.json also runs it once a day (Vercel Cron, ~08:00 WIB), so the
+ * numbers, the follower history and the token stay current with no visits.
+ *
  * Setup (Vercel → Settings → Environment Variables): IG_ACCESS_TOKEN = the
  * long-lived token from the Meta app (API setup with Instagram login). The
  * token is refreshed here and the new one kept in Redis; it never leaves the
