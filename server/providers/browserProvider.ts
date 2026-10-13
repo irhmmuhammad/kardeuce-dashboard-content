@@ -3,7 +3,7 @@ import type { AccountDayInput, IntegrationMode, PostInput, SocialPlatform } from
 import { ApiError } from '../errors.ts';
 import { todayUTC } from '../dates.ts';
 import { browserAvailable, clearProfile, focusChrome, headless, interactiveLogin, launch, withProfileLock } from '../browser/chrome.ts';
-import { clearFailure, readFailure, readScrape, writeFailure, writeScrape, type ScrapeResult } from '../browser/cache.ts';
+import { clearFailure, readFailure, readLastFailure, readScrape, writeFailure, writeScrape, type ScrapeResult } from '../browser/cache.ts';
 import { scrapeAccount, scrapeMedia, scrapeMediaInsights } from '../../shared/scrape.ts';
 import { publishLiveData } from '../publish.ts';
 import { tokenStore, type StoredToken } from '../tokenStore.ts';
@@ -41,6 +41,8 @@ const SCRAPE_TIMEOUT_MS = 5 * 60_000;
  * (server/.data) so a server restart doesn't retry right away.
  */
 const FAIL_REUSE_MS = 2 * 60_000;
+/** Longest pause after repeated rate limits. */
+const MAX_RATE_LIMIT_PAUSE_MS = 24 * 3600_000;
 
 function withTimeout<T>(task: Promise<T>, ms: number, onTimeout: () => void, message: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -122,8 +124,12 @@ export function browserProvider(s: BrowserScraper): BrowserProvider {
         (err) => {
           // Unexpected errors keep the generic message app.onError would show.
           const e = err instanceof ApiError ? err : new ApiError('internal', 'Unexpected server error. Check the API terminal for details.');
-          const pauseMs = e.code === 'rate_limited' ? (e.retryAfter ?? 3600) * 1000 : FAIL_REUSE_MS;
-          writeFailure(s.platform, { until: new Date(Date.now() + pauseMs).toISOString(), code: e.code, message: e.message });
+          // Rate limited again right after a pause: the platform is still blocking, so wait longer each time.
+          const prev = readLastFailure(s.platform);
+          const strikes = e.code === 'rate_limited' ? (prev?.code === 'rate_limited' ? (prev.strikes ?? 1) : 0) + 1 : undefined;
+          const pauseMs = strikes ? Math.min((e.retryAfter ?? 3600) * 1000 * 2 ** (strikes - 1), MAX_RATE_LIMIT_PAUSE_MS) : FAIL_REUSE_MS;
+          const message = strikes && strikes > 1 ? `${e.message} Still blocked after ${strikes} tries, so syncing pauses for ${Math.round(pauseMs / 3600_000)}h.` : e.message;
+          writeFailure(s.platform, { until: new Date(Date.now() + pauseMs).toISOString(), code: e.code, message, strikes });
           throw err;
         },
       )

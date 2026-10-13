@@ -41,19 +41,26 @@ export interface SyncFailure {
   until: string;
   code: ErrorCode;
   message: string;
+  /** Rate limits in a row (no successful sync in between); each one doubles the pause. */
+  strikes?: number;
 }
 
 const failureFile = (p: SocialPlatform) => join(DATA_DIR, `sync-failure-${p.toLowerCase()}.json`);
 
-/** The failure while its pause is still running, else undefined. */
-export function readFailure(platform: SocialPlatform): SyncFailure | undefined {
+/** The last failure, also after its pause ran out (cleared by a successful sync). */
+export function readLastFailure(platform: SocialPlatform): SyncFailure | undefined {
   if (!existsSync(failureFile(platform))) return undefined;
   try {
-    const f = JSON.parse(readFileSync(failureFile(platform), 'utf8')) as SyncFailure;
-    return Date.parse(f.until) > Date.now() ? f : undefined;
+    return JSON.parse(readFileSync(failureFile(platform), 'utf8')) as SyncFailure;
   } catch {
     return undefined;
   }
+}
+
+/** The failure while its pause is still running, else undefined. */
+export function readFailure(platform: SocialPlatform): SyncFailure | undefined {
+  const f = readLastFailure(platform);
+  return f && Date.parse(f.until) > Date.now() ? f : undefined;
 }
 
 export function writeFailure(platform: SocialPlatform, failure: SyncFailure) {
