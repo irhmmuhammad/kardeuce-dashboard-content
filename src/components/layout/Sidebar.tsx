@@ -156,7 +156,7 @@ export function Sidebar({ route }: { route: RouteKey }) {
               isCollapsed && 'md:justify-center md:border-transparent md:bg-transparent md:p-0',
             )}
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-[13px] font-black text-ink">K</div>
+            <LogoMark size={32} />
             {!isCollapsed && (
               <div className="min-w-0">
                 <div className="truncate text-[12.5px] font-bold tracking-[0.06em]">KARDEUCE</div>
