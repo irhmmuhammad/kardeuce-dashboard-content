@@ -84,6 +84,42 @@ export function migrateMetricsV3(c: ContentItem): ContentItem {
   };
 }
 
+/**
+ * v4: the October plan follows the latest Google Sheet (three posts swapped
+ * dates, "Alasan Main Tennis" is posted) and the published status is called
+ * "Posted" like in the sheet. Matches posts by title and only touches the
+ * sheet's columns, so captions, notes, covers and metrics stay as they are.
+ */
+export function syncPlanV4(s: WorkspaceSnapshot): WorkspaceSnapshot {
+  const rename = (status: string) => (status === 'Uploaded' ? 'Posted' : status);
+  const statuses = s.settings.statuses.map((x) => (x.name === 'Uploaded' && !s.settings.statuses.some((y) => y.name === 'Posted') ? { ...x, name: 'Posted' } : x));
+  const renamed = statuses.some((x, i) => x !== s.settings.statuses[i]);
+  const hasPosted = statuses.some((x) => x.name === 'Posted');
+  const sheet = createSeedSnapshot().contents;
+  const key = (t: string) => t.trim().toLowerCase();
+  const byTitle = new Map(sheet.map((c) => [key(c.title), c]));
+  const seen = new Set<string>();
+  const contents = s.contents.map((c) => {
+    const row = byTitle.get(key(c.title));
+    const status = renamed ? rename(c.status) : c.status;
+    if (!row) return status === c.status ? c : { ...c, status };
+    seen.add(key(c.title));
+    return {
+      ...c,
+      publishDate: row.publishDate,
+      contentType: row.contentType,
+      contentPillar: row.contentPillar,
+      order: row.order,
+      references: c.references.length ? c.references : row.references,
+      status: row.status === 'Posted' && hasPosted ? 'Posted' : status,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  const maxOrder = contents.reduce((m, c) => Math.max(m, c.order), 0);
+  const added = sheet.filter((c) => !seen.has(key(c.title)) && !contents.some((x) => x.id === c.id)).map((c, i) => ({ ...c, order: maxOrder + i + 1 }));
+  return { ...s, contents: [...contents, ...added], settings: renamed ? { ...s.settings, statuses } : s.settings };
+}
+
 /** Load the workspace, seeding it with sample data on first run. */
 export async function loadWorkspace(): Promise<WorkspaceSnapshot> {
   let existing = await db.loadSnapshot();
@@ -103,6 +139,7 @@ export async function loadWorkspace(): Promise<WorkspaceSnapshot> {
       };
     }
     if (existing.version < 3) next = { ...next, contents: next.contents.map(migrateMetricsV3) };
+    if (existing.version < 4) next = syncPlanV4(next);
     next = { ...next, version: SCHEMA_VERSION };
     await db.saveSnapshot(next);
     existing = next;

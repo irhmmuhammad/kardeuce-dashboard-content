@@ -28,7 +28,7 @@ import { toast } from '@/store/toast';
 import { confirm } from '@/store/confirm';
 import { useHotkey } from '@/hooks/useHotkey';
 import { formatLong, monthLabel, monthKeyOf, relativeDay } from '@/lib/date';
-import { contentER, hasMetrics } from '@/lib/analytics';
+import { contentER, hasMetrics, stageOf } from '@/lib/analytics';
 import { ContentInsights } from '@/components/insights/ContentInsights';
 import { cn, formatPct, isMac, isUrl, normaliseUrl } from '@/lib/utils';
 import type { ContentItem } from '@/types';
@@ -95,7 +95,7 @@ export function ContentDrawer() {
 
   useEffect(() => {
     setDraft(item ? structuredClone(item) : null);
-    setShowMetrics(item?.status === 'Uploaded' || (!!item && hasMetrics(item)));
+    setShowMetrics((!!item && stageOf(item.status, useWorkspace.getState().settings.statuses) === 'published') || (!!item && hasMetrics(item)));
     baselineMetrics.current = item?.platformMetrics;
     // Only re-sync when switching items, not on every store update.
     // eslint-disable-next-line react-hooks/exhaustive-deps

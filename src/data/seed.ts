@@ -1,7 +1,7 @@
 import type { ContentItem, ContentMetrics, Idea, Pillar, WorkspaceSettings, WorkspaceSnapshot } from '@/types';
 import { PILLAR_PALETTE } from '@/config/theme';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const EMPTY_METRICS: ContentMetrics = {
   views: 0,
@@ -24,7 +24,7 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
     { name: 'Review', tone: 'blue', stage: 'progress' },
     { name: 'Ready to Post', tone: 'cyan', stage: 'progress' },
     { name: 'Scheduled', tone: 'indigo', stage: 'scheduled' },
-    { name: 'Uploaded', tone: 'green', stage: 'published' },
+    { name: 'Posted', tone: 'green', stage: 'published' },
   ],
   objectives: ['Awareness', 'Engagement', 'Education', 'Conversion', 'Community'],
   ideaStatuses: ['New', 'In Discussion', 'Approved', 'Moved to Plan'],
@@ -167,11 +167,11 @@ function content(p: Partial<ContentItem> & Pick<ContentItem, 'publishDate' | 'co
 
 /** Mirrors the "CONTEN PLAN OKTOBER 2026" Google Sheet row for row (12 posts). */
 const PLAN: ContentItem[] = [
-  content({ publishDate: '2026-10-10', contentType: 'Carousel', contentPillar: 'Entertainment', title: 'Alasan Main Tennis', references: ['https://www.instagram.com/p/Dd1BsliAY7C/'] }),
-  content({ publishDate: '2026-10-13', contentType: 'Reels', contentPillar: 'Promotion', title: 'Cinematic' }),
+  content({ publishDate: '2026-10-10', contentType: 'Carousel', contentPillar: 'Entertainment', title: 'Alasan Main Tennis', status: 'Posted', references: ['https://www.instagram.com/p/Dd1BsliAY7C/'] }),
+  content({ publishDate: '2026-10-13', contentType: 'Reels', contentPillar: 'Entertainment', title: 'Excited Hidup', references: ['https://www.instagram.com/reel/DUPbDrykye2/'] }),
   content({ publishDate: '2026-10-15', contentType: 'Carousel', contentPillar: 'Entertainment', title: 'Circle of Life', references: ['https://www.instagram.com/p/Dc2kdB8qBzA/'] }),
-  content({ publishDate: '2026-10-17', contentType: 'Reels', contentPillar: 'Entertainment', title: 'Excited Hidup', references: ['https://www.instagram.com/reel/DUPbDrykye2/'] }),
-  content({ publishDate: '2026-10-20', contentType: 'Carousel', contentPillar: 'Education', title: 'Tips Pemula', references: ['https://www.instagram.com/p/DeBNJ9qAQt1/'] }),
+  content({ publishDate: '2026-10-17', contentType: 'Carousel', contentPillar: 'Education', title: 'Tips Pemula', references: ['https://www.instagram.com/p/DeBNJ9qAQt1/'] }),
+  content({ publishDate: '2026-10-20', contentType: 'Reels', contentPillar: 'Promotion', title: 'Cinematic' }),
   content({ publishDate: '2026-10-22', contentType: 'Carousel', contentPillar: 'Entertainment', title: 'Yes You Can', references: ['https://www.instagram.com/p/DeJE-6FJlG0/'] }),
   content({ publishDate: '2026-10-24', contentType: 'Reels', contentPillar: 'Entertainment', title: 'Kita Kaya Dulu', references: ['https://www.instagram.com/reel/DeDskRrOfr-/'] }),
   content({ publishDate: '2026-10-27', contentType: 'Reels', contentPillar: 'Entertainment', title: 'Profesi Pemain Tennis', references: ['https://www.instagram.com/reel/DctWQ21T-6t/'] }),
