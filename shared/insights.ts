@@ -131,6 +131,11 @@ export interface IntegrationStatus {
    * usually the account's creation date), so the app syncs everything since then.
    */
   historySince?: string;
+  /**
+   * Hosted read-only dashboard: the data is a published copy (no server), read
+   * by the local server at this time (ISO). Connect / disconnect aren't possible.
+   */
+  snapshotAt?: string;
 }
 
 export interface IntegrationsResponse {

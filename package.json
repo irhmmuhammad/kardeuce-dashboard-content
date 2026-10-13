@@ -8,6 +8,7 @@
     "dev:web": "vite",
     "dev:api": "tsx watch server/index.ts",
     "start:api": "tsx server/index.ts",
+    "publish:data": "tsx server/publish.ts",
     "build": "tsc -b && tsc -p server --noEmit && vite build",
     "typecheck": "tsc -b --noEmit && tsc -p server --noEmit",
     "preview": "vite preview"

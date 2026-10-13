@@ -4,6 +4,8 @@ import { ApiError } from '../errors.ts';
 import { todayUTC } from '../dates.ts';
 import { browserAvailable, clearProfile, focusChrome, headless, interactiveLogin, launch, withProfileLock } from '../browser/chrome.ts';
 import { clearFailure, readFailure, readScrape, writeFailure, writeScrape, type ScrapeResult } from '../browser/cache.ts';
+import { scrapeAccount, scrapeMedia, scrapeMediaInsights } from '../../shared/scrape.ts';
+import { publishLiveData } from '../publish.ts';
 import { tokenStore, type StoredToken } from '../tokenStore.ts';
 import type { ServerProvider } from './types.ts';
 
@@ -95,6 +97,7 @@ export function browserProvider(s: BrowserScraper): BrowserProvider {
         const token = tokenStore.get(s.platform);
         if (token?.mode === s.mode && out.accountName && out.accountName !== token.accountName) tokenStore.update(s.platform, { accountName: out.accountName });
         console.log(`[browser] ${s.platform}: ${result.posts.length} posts, followers ${result.followersNow ?? '?'}`);
+        publishLiveData();
         return result;
       } finally {
         await ctx.close().catch(() => undefined);
@@ -188,33 +191,15 @@ export function browserProvider(s: BrowserScraper): BrowserProvider {
     refresh,
 
     async account(_token, range) {
-      const r = await refresh();
-      // Dashboard history first; follower counts seen by our own syncs fill the gaps (e.g. today).
-      const byDate = new Map<string, AccountDayInput>(Object.entries(r.days ?? {}).map(([date, d]) => [date, { ...d }]));
-      for (const [date, followers] of Object.entries(r.followersByDay)) {
-        const day = byDate.get(date) ?? { platform: s.platform, date };
-        day.followers ??= followers;
-        byDate.set(date, day);
-      }
-      const days = [...byDate.values()].filter((d) => d.date >= range.since && d.date <= range.until).sort((a, b) => a.date.localeCompare(b.date));
-      const warnings = r.days ? [] : [`${s.label}: daily reach/views aren't read from the dashboard yet; follower history builds up from each sync.`];
-      return { followersNow: r.followersNow, days, warnings };
+      return scrapeAccount(await refresh(), s.platform, s.label, range);
     },
 
     async media(_token, range) {
-      const r = await refresh();
-      const posts = r.posts.filter((p) => {
-        const d = p.publishedAt.slice(0, 10);
-        return d >= range.since && d <= range.until;
-      });
-      return { posts, warnings: r.warnings };
+      return scrapeMedia(await refresh(), range);
     },
 
     async mediaInsights(_token, refs) {
-      const r = await refresh();
-      const byId = new Map(r.posts.map((p) => [p.mediaId, p.metrics]));
-      const metrics = Object.fromEntries(refs.filter((x) => byId.has(x.mediaId)).map((x) => [x.mediaId, byId.get(x.mediaId)!]));
-      return { metrics, warnings: [] };
+      return scrapeMediaInsights(await refresh(), refs.map((x) => x.mediaId));
     },
   };
 }
