@@ -54,6 +54,7 @@ const PERIODS: { value: InsightsPeriodKind; label: string }[] = [
   { value: '28d', label: '28d' },
   { value: '90d', label: '90d' },
   { value: 'month', label: 'This month' },
+  { value: 'all', label: 'All time' },
   { value: 'custom', label: 'Custom' },
 ];
 
@@ -93,7 +94,7 @@ export function InsightsToolbar({ period, className }: { period: Period; classNa
             aria-label="From"
             className="input h-8 w-[138px] text-[12.5px]"
             value={custom.since || period.since}
-            min={addDays(todayISO(), -730)}
+            min={addDays(todayISO(), -3650)}
             max={todayISO()}
             onChange={(e) => setCustom({ since: e.target.value, until: custom.until || period.until })}
           />

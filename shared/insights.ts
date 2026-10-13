@@ -126,6 +126,11 @@ export interface IntegrationStatus {
   browserAvailable: boolean;
   /** Browser mode: next scheduled background sync (ISO). */
   nextAutoSyncAt?: string;
+  /**
+   * Browser mode: the server can return history from this day on (YYYY-MM-DD,
+   * usually the account's creation date), so the app syncs everything since then.
+   */
+  historySince?: string;
 }
 
 export interface IntegrationsResponse {

@@ -16,6 +16,8 @@ export interface PlatformSyncResult {
   warnings: string[];
   /** Steps that failed. Empty = full success. */
   errors: string[];
+  /** `posts` is the account's complete post list: posts not in it no longer exist (or were never the account's). */
+  postsComplete?: boolean;
 }
 
 const snapshotId = (platform: SocialPlatform, date: string) => `${platform}:${date}`;
@@ -102,20 +104,24 @@ export async function syncPlatform(
   // Account: backfill 90 days on first sync, then only the last few days (platforms revise ~48h).
   const own = existingSnapshots.filter((s) => s.platform === platform && s.source === source);
   const latest = own.reduce<string | null>((m, s) => (!m || s.date > m ? s.date : m), null);
-  const accountSince = latest && latest > windowStart ? addDays(latest, -3) : windowStart;
+  // Full-history sources are cached on the server, so re-reading everything each sync is cheap.
+  const history = provider.fullHistorySince;
+  const recentSince = latest && latest > windowStart ? addDays(latest, -3) : windowStart;
+  const accountSince = history ?? (recentSince < windowStart ? windowStart : recentSince);
   try {
-    const res = await provider.getAccountInsights({ since: accountSince < windowStart ? windowStart : accountSince, until: today });
+    const res = await provider.getAccountInsights({ since: accountSince, until: today });
     result.snapshots = buildSnapshots(platform, res.days, res.followersNow, own, source, syncedAt);
     result.warnings.push(...res.warnings);
   } catch (err) {
     result.errors.push(`Account insights: ${errorText(err)}`);
   }
 
-  // Posts in the last 90 days, refreshed every sync (numbers keep growing after posting).
+  // Posts in the last 90 days (or all of them), refreshed every sync (numbers keep growing after posting).
   let listed: PostInput[] = [];
   try {
-    const res = await provider.listMedia({ since: windowStart, until: today });
+    const res = await provider.listMedia({ since: history ?? windowStart, until: today });
     listed = res.posts;
+    result.postsComplete = !!history && listed.length > 0;
     result.warnings.push(...res.warnings);
   } catch (err) {
     result.errors.push(`Post list: ${errorText(err)}`);

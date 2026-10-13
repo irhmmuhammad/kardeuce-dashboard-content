@@ -163,7 +163,10 @@ export const useInsights = create<InsightsState>()((set, get) => ({
         const prev = get();
         // First live sync replaces demo data for that platform (demo rows are never mixed with real ones).
         const keepSnap = (s: AccountSnapshot) => s.platform !== platform || (live ? s.source === 'api' : s.source === 'mock');
-        const keepPost = (p: PlatformPost) => p.platform !== platform || (live ? p.source === 'api' : p.source === 'mock');
+        // A complete list (TikTok Studio) also drops posts that are gone from the account.
+        const listedIds = new Set(result.posts.map((p) => p.id));
+        const keepPost = (p: PlatformPost) =>
+          p.platform !== platform || (live ? p.source === 'api' && (!result.postsComplete || listedIds.has(p.id)) : p.source === 'mock');
         const snapMap = new Map(prev.snapshots.filter(keepSnap).map((s) => [s.id, s]));
         result.snapshots.forEach((s) => snapMap.set(s.id, s));
         const postMap = new Map(prev.posts.filter(keepPost).map((p) => [p.id, p]));
@@ -238,7 +241,7 @@ export const useInsights = create<InsightsState>()((set, get) => ({
   },
 
   async connectBrowser(platform) {
-    toast.info('Chrome window opened', 'Log in there, then close the window to finish.');
+    toast.info('Separate Chrome window opened', 'Not a tab in your Chrome: look for the second Chrome icon in the Dock. Log in there, then close that window to finish.');
     try {
       await api<IntegrationStatus>(`/browser/${platformSlug(platform)}/login`, { method: 'POST' });
       await get().refreshIntegrations();

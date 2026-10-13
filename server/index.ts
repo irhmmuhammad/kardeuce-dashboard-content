@@ -80,6 +80,7 @@ function status(platform: SocialPlatform): IntegrationStatus {
     error: token?.error,
     browserAvailable: browserAvailable(),
     nextAutoSyncAt: token && browserProviders[platform].mode === token.mode ? nextAutoSync(platform) : undefined,
+    historySince: token && browserProviders[platform].mode === token.mode ? readScrape(platform)?.historySince : undefined,
   };
 }
 

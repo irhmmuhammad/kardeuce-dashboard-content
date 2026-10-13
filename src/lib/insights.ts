@@ -16,7 +16,8 @@ export interface Period {
   label: string;
 }
 
-export function resolvePeriod(kind: InsightsPeriodKind, custom?: { since: ISODate; until: ISODate }): Period {
+/** `earliest`: first day with data, used by 'all' (all time). */
+export function resolvePeriod(kind: InsightsPeriodKind, custom?: { since: ISODate; until: ISODate }, earliest?: ISODate): Period {
   const today = todayISO();
   const make = (since: ISODate, until: ISODate, label: string): Period => ({ since, until, days: diffDays(since, until) + 1, label });
   switch (kind) {
@@ -28,6 +29,8 @@ export function resolvePeriod(kind: InsightsPeriodKind, custom?: { since: ISODat
       return make(addDays(today, -89), today, 'last 90 days');
     case 'month':
       return make(monthStart(currentMonthKey()), today, 'this month');
+    case 'all':
+      return make(earliest && earliest < today ? earliest : addDays(today, -89), today, 'all time');
     case 'custom': {
       const since = custom?.since || addDays(today, -27);
       const until = custom?.until && custom.until >= since ? custom.until : today;
@@ -167,7 +170,7 @@ export function trendRows(
     const end = weekly ? (addDays(d, 6) < period.until ? addDays(d, 6) : period.until) : d;
     const row: { label: string; date: ISODate; Instagram?: number; TikTok?: number } = {
       date: d,
-      label: parseISO(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+      label: parseISO(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(period.days > 365 ? { year: '2-digit' } : {}) }),
     };
     for (const p of platforms) {
       const span = snaps.filter((s) => s.platform === p && s.date >= d && s.date <= end);

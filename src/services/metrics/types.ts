@@ -17,6 +17,12 @@ export interface MetricsProvider {
   kind: 'instagram' | 'tiktok' | 'mock';
   /** True when listMedia already returns full insights (TikTok Business), so getMediaInsights can be skipped. */
   listIncludesInsights: boolean;
+  /**
+   * Set when the source returns the account's whole history (TikTok Studio):
+   * every sync then reads everything since this day, and the post list is
+   * complete, so posts missing from it are dropped.
+   */
+  fullHistorySince?: string;
   getAccountInsights(range: DateRange): Promise<AccountInsightsResponse>;
   listMedia(range: DateRange): Promise<MediaListResponse>;
   getMediaInsights(posts: { mediaId: string; type: PostType }[]): Promise<MediaInsightsResponse>;
