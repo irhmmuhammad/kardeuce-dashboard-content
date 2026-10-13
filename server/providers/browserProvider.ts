@@ -152,7 +152,8 @@ export function browserProvider(s: BrowserScraper): BrowserProvider {
     };
     tokenStore.set(token);
     // A new login fixes an expired session, not a rate limit: retrying early only extends the block.
-    if (readFailure(s.platform)?.code !== 'rate_limited') clearFailure(s.platform);
+    // Also keeps an expired one, so the next rate limit still counts as a repeat and pauses longer.
+    if (readLastFailure(s.platform)?.code !== 'rate_limited') clearFailure(s.platform);
     // First scrape right away so the account name shows up in Settings.
     try {
       await refresh({ force: true });
