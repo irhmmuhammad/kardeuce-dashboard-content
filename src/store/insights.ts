@@ -48,7 +48,8 @@ interface InsightsState {
   conflicts: MetricConflict[];
 
   hydrate: () => Promise<void>;
-  refreshIntegrations: () => Promise<void>;
+  /** `force`: on the hosted site, ask Instagram for new numbers instead of the 15-minute cache. */
+  refreshIntegrations: (opts?: { force?: boolean }) => Promise<void>;
   syncNow: (opts?: { platforms?: SocialPlatform[]; auto?: boolean }) => Promise<void>;
   linkPost: (postId: string, contentId: string | null) => void;
   resolveConflicts: (decisions: { conflict: MetricConflict; use: 'manual' | 'synced' }[]) => void;
@@ -121,13 +122,13 @@ export const useInsights = create<InsightsState>()((set, get) => ({
     if (due.length) void get().syncNow({ platforms: due, auto: true });
   },
 
-  async refreshIntegrations() {
+  async refreshIntegrations(opts = {}) {
     try {
       const res = await api<IntegrationsResponse>('/integrations');
       set({ integrations: res.integrations, serverError: null });
     } catch (err) {
       // Hosted site: no server, but the local server may have published its data.
-      const published = await loadPublished();
+      const published = await loadPublished(opts);
       if (published) {
         set({ integrations: publishedIntegrations(published), serverError: null });
         return;
@@ -141,7 +142,7 @@ export const useInsights = create<InsightsState>()((set, get) => ({
     const state = get();
     const platforms = (opts.platforms ?? SOCIAL_PLATFORMS).filter((p) => !state.sync[p].syncing);
     if (!platforms.length) return;
-    if (!opts.auto) await get().refreshIntegrations();
+    if (!opts.auto) await get().refreshIntegrations({ force: true });
 
     const ws = useWorkspace.getState();
     const providers: MetricsProvider[] = [];

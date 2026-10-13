@@ -69,7 +69,7 @@ export function IntegrationsPanel() {
           const integ = integrations?.find((i) => i.platform === p);
           const mode = modes[p];
           const viaBrowser = BROWSER_MODES.has(integ?.mode ?? null) && !!integ?.connected;
-          const exp = integ?.connected && !viaBrowser ? expiryText(integ.tokenExpiresAt) : null;
+          const exp = integ?.connected && !viaBrowser && !integ.snapshotAt ? expiryText(integ.tokenExpiresAt) : null;
           const st = sync[p];
           return (
             <li key={p} className="rounded-xl border border-line p-3">
@@ -101,7 +101,11 @@ export function IntegrationsPanel() {
                       <div>No token · background sync {new Date(integ.nextAutoSyncAt) <= new Date() ? 'running soon' : `next at ${new Date(integ.nextAutoSyncAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</div>
                     )}
                     {integ?.snapshotAt ? (
-                      <div>Read-only copy · synced on the KARDEUCE computer {relativeTime(integ.snapshotAt)}</div>
+                      <div>
+                        {integ.mode === 'instagram_login'
+                          ? `Live from the Instagram API · updated ${relativeTime(integ.snapshotAt)}`
+                          : `Read-only copy · synced on the KARDEUCE computer ${relativeTime(integ.snapshotAt)}`}
+                      </div>
                     ) : (
                       <div>Last sync {relativeTime(meta.lastSyncAt[p])}</div>
                     )}
@@ -195,7 +199,7 @@ export function IntegrationsPanel() {
       </ul>
       <p className="text-[11.5px] leading-relaxed text-ink-4">
         {readOnly
-          ? 'This hosted dashboard shows a copy of the numbers synced on the KARDEUCE computer; it updates a few minutes after each sync there (every 6 hours while its server runs). Connect, log in and disconnect from that computer.'
+          ? 'Instagram comes straight from the Instagram API and refreshes when the page opens (at most every 15 minutes; Reload data asks for new numbers now). TikTok is a copy synced on the KARDEUCE computer, updated a few minutes after each sync there. Connect and disconnect from that computer.'
           : <>Tokens and browser logins are stored by the local API server (<code className="rounded bg-muted px-1">server/.data</code>), never in the browser. Auto-sync runs when the app opens and the last sync is older than 6 hours; browser connections also sync in the background every 6 hours while the server runs. Setup guide: README → “Menghubungkan Instagram &amp; TikTok”.</>}
       </p>
       <PasteTokenModal platform={pasting} onClose={() => setPasting(null)} />

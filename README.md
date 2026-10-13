@@ -218,6 +218,15 @@ Content Plan, Content Bank, pillar dan settings bisa disimpan online, jadi semua
 
 Sebelum Upstash di-connect, website tetap jalan seperti biasa (data di browser masing-masing). Data insights tetap per browser karena asalnya dari `live-data.json`.
 
+### Instagram langsung dari API di website (tanpa Mac)
+
+Kalau Instagram tersambung lewat token (Instagram API with Instagram Login), website bisa ambil datanya sendiri:
+
+1. Vercel → **Settings → Environment Variables** → `IG_ACCESS_TOKEN` = token yang sama dengan yang di-paste di Settings → Integrations (diawali `IGAA…`).
+2. **Redeploy**.
+
+Website ngambil angka baru tiap dibuka (paling sering 15 menit sekali; **Reload data** maksa ambil sekarang) dan nyimpen hasilnya di Upstash. Token diperpanjang otomatis di sana. Kalau token diganti, cukup update `IG_ACCESS_TOKEN` lalu redeploy.
+
 ### Gambaran singkat
 
 | | Instagram | TikTok (Business API) | TikTok (Display API, cadangan) |

@@ -7,15 +7,33 @@ import { PUBLISHED_DATA_FILE, type PublishedData, type ScrapeResult } from '@sha
  */
 let current: PublishedData | null = null;
 
-/** Fetch the published data; null when the site has none (local dev, demo deploys). */
-export async function loadPublished(): Promise<PublishedData | null> {
+const INSTAGRAM_ENDPOINT = '/api/instagram-data';
+
+async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`/${PUBLISHED_DATA_FILE}`, { cache: 'no-store' });
+    const res = await fetch(path, { cache: 'no-store' });
     if (!res.ok || !res.headers.get('content-type')?.includes('json')) return null;
-    const data = (await res.json()) as PublishedData;
-    current = data?.version === 1 && data.platforms ? data : null;
+    return (await res.json()) as T;
   } catch {
-    current = null;
+    return null;
+  }
+}
+
+/**
+ * Fetch the published data; null when the site has none (local dev, demo
+ * deploys). Instagram comes straight from the official API when the site has
+ * it set up (api/instagram-data.ts) and replaces any published copy.
+ */
+export async function loadPublished(opts: { force?: boolean } = {}): Promise<PublishedData | null> {
+  const [published, instagram] = await Promise.all([
+    getJson<PublishedData>(`/${PUBLISHED_DATA_FILE}`),
+    getJson<NonNullable<PublishedData['platforms']['Instagram']>>(opts.force ? `${INSTAGRAM_ENDPOINT}?force=1` : INSTAGRAM_ENDPOINT),
+  ]);
+  const data: PublishedData | null = published?.version === 1 && published.platforms ? published : null;
+  if (instagram?.integration && instagram.scrape) {
+    current = { version: 1, publishedAt: data?.publishedAt ?? instagram.scrape.scrapedAt, platforms: { ...data?.platforms, Instagram: instagram } };
+  } else {
+    current = data;
   }
   return current;
 }
