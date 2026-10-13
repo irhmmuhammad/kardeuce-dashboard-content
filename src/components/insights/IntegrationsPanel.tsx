@@ -41,6 +41,8 @@ export function IntegrationsPanel() {
   const [loggingIn, setLoggingIn] = useState<SocialPlatform | null>(null);
   const refresh = useInsights((s) => s.refreshIntegrations);
   const modes = usePlatformModes();
+  // Hosted site showing data published by the local server: nothing can be connected here.
+  const readOnly = !!integrations?.some((i) => i.snapshotAt);
   const [pasting, setPasting] = useState<SocialPlatform | null>(null);
 
   const logIn = async (p: SocialPlatform) => {
@@ -98,8 +100,12 @@ export function IntegrationsPanel() {
                     {viaBrowser && integ?.nextAutoSyncAt && (
                       <div>No token · background sync {new Date(integ.nextAutoSyncAt) <= new Date() ? 'running soon' : `next at ${new Date(integ.nextAutoSyncAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</div>
                     )}
-                    <div>Last sync {relativeTime(meta.lastSyncAt[p])}</div>
-                    {!integ?.configured && !integ?.connected && (
+                    {integ?.snapshotAt ? (
+                      <div>Read-only copy · synced on the KARDEUCE computer {relativeTime(integ.snapshotAt)}</div>
+                    ) : (
+                      <div>Last sync {relativeTime(meta.lastSyncAt[p])}</div>
+                    )}
+                    {!readOnly && !integ?.configured && !integ?.connected && (
                       <div className="text-ink-4">{integ?.browserAvailable ? 'No token needed: connect via browser and log in to ' + (p === 'TikTok' ? 'TikTok Studio' : 'Instagram & Meta Business Suite') + '.' : 'No app credentials in .env. You can still paste a token.'}</div>
                     )}
                     {integ?.error && <div className="text-red-600">{integ.error}</div>}
@@ -108,7 +114,13 @@ export function IntegrationsPanel() {
                 </div>
               </div>
               <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {integ?.connected ? (
+                {integ?.snapshotAt ? (
+                  <Button size="xs" loading={st.syncing} icon={<RefreshCw className="h-3 w-3" />} onClick={() => syncNow({ platforms: [p] })}>
+                    Reload data
+                  </Button>
+                ) : readOnly ? (
+                  mode === 'demo' && <span className="text-[11.5px] text-ink-4">Not published from the KARDEUCE computer yet: showing demo data.</span>
+                ) : integ?.connected ? (
                   <>
                     <Button size="xs" loading={st.syncing} icon={<RefreshCw className="h-3 w-3" />} onClick={() => syncNow({ platforms: [p] })}>
                       Sync now
@@ -182,7 +194,9 @@ export function IntegrationsPanel() {
         })}
       </ul>
       <p className="text-[11.5px] leading-relaxed text-ink-4">
-        Tokens and browser logins are stored by the local API server (<code className="rounded bg-muted px-1">server/.data</code>), never in the browser. Auto-sync runs when the app opens and the last sync is older than 6 hours; browser connections also sync in the background every 6 hours while the server runs. Setup guide: README → “Menghubungkan Instagram &amp; TikTok”.
+        {readOnly
+          ? 'This hosted dashboard shows a copy of the numbers synced on the KARDEUCE computer; it updates a few minutes after each sync there (every 6 hours while its server runs). Connect, log in and disconnect from that computer.'
+          : <>Tokens and browser logins are stored by the local API server (<code className="rounded bg-muted px-1">server/.data</code>), never in the browser. Auto-sync runs when the app opens and the last sync is older than 6 hours; browser connections also sync in the background every 6 hours while the server runs. Setup guide: README → “Menghubungkan Instagram &amp; TikTok”.</>}
       </p>
       <PasteTokenModal platform={pasting} onClose={() => setPasting(null)} />
     </div>

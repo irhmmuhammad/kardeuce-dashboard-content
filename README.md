@@ -193,6 +193,19 @@ Yang perlu diketahui:
 - Yang kebaca: followers, views, likes, comments, shares, saves per post; Instagram reach dari Business Suite; watch time TikTok kalau tampil di Studio. Riwayat follower harian kebentuk dari tiap sync.
 - Ada yang aneh? Set `SCRAPE_DEBUG=true` dan `BROWSER_HEADLESS=false` di `.env`, restart, klik **Sync now**, lalu cek `server/.data/scrape-debug/`.
 
+### Dashboard online (Vercel) dengan data asli
+
+Website di Vercel gak punya server, jadi gak bisa sync sendiri. Server di komputer ini yang ngirim datanya:
+
+1. Set `PUBLISH_LIVE_DATA=true` di `.env`, restart `npm run dev`.
+2. Tiap sync berhasil, server commit `public/live-data.json` langsung ke `origin/main` (working tree kamu gak disentuh) lalu push. Vercel deploy ulang, website update ±2 menit kemudian.
+3. Mau kirim sekarang tanpa nunggu sync: `npm run publish:data`.
+
+Yang perlu diketahui:
+- Website-nya **read-only**: connect, login, disconnect tetap dari komputer ini. Rencana konten (Content Plan dll.) gak ikut, itu tetap di browser masing-masing.
+- Yang dikirim: followers, angka harian, dan post (caption, thumbnail, metrics). **Repo public = data ini bisa dilihat siapa aja.** Token dan login gak pernah ikut.
+- Karena server nge-push ke `main`, sebelum push kerjaan kamu sendiri jalankan `git pull --rebase` dulu.
+
 ### Gambaran singkat
 
 | | Instagram | TikTok (Business API) | TikTok (Display API, cadangan) |

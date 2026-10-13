@@ -7,7 +7,9 @@ import {
   applyPostsToContents,
   autoLink,
   isStale,
+  loadPublished,
   mockProvider,
+  publishedIntegrations,
   platformSlug,
   remoteProvider,
   syncedSet,
@@ -113,7 +115,9 @@ export const useInsights = create<InsightsState>()((set, get) => ({
     }
 
     // Auto-sync platforms whose last sync is older than 6h (or never synced).
-    const due = SOCIAL_PLATFORMS.filter((p) => platformMode(p, get()) !== 'stale' && isStale(get().meta.lastSyncAt[p]));
+    // Published data (hosted site) is local and may have changed since the last visit: always reload it.
+    const isPublished = (p: SocialPlatform) => !!get().integrations?.find((i) => i.platform === p)?.snapshotAt;
+    const due = SOCIAL_PLATFORMS.filter((p) => platformMode(p, get()) !== 'stale' && (isPublished(p) || isStale(get().meta.lastSyncAt[p])));
     if (due.length) void get().syncNow({ platforms: due, auto: true });
   },
 
@@ -122,6 +126,12 @@ export const useInsights = create<InsightsState>()((set, get) => ({
       const res = await api<IntegrationsResponse>('/integrations');
       set({ integrations: res.integrations, serverError: null });
     } catch (err) {
+      // Hosted site: no server, but the local server may have published its data.
+      const published = await loadPublished();
+      if (published) {
+        set({ integrations: publishedIntegrations(published), serverError: null });
+        return;
+      }
       // No server = demo mode for everything; the app keeps working.
       set({ integrations: [], serverError: err instanceof Error ? err.message : 'API server unavailable' });
     }

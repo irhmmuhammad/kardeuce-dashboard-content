@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AccountDayInput, PostInput, SocialPlatform } from '../../shared/insights.ts';
+import type { SocialPlatform } from '../../shared/insights.ts';
+import type { ScrapeResult } from '../../shared/scrape.ts';
 import type { ErrorCode } from '../errors.ts';
 
 /**
@@ -9,18 +10,7 @@ import type { ErrorCode } from '../errors.ts';
  * counts are kept per day so the dashboards get a history even though the web
  * pages only show today's number.
  */
-export interface ScrapeResult {
-  scrapedAt: string;
-  followersNow?: number;
-  /** YYYY-MM-DD → follower count seen that day (last scrape of the day wins). */
-  followersByDay: Record<string, number>;
-  /** YYYY-MM-DD → daily account numbers read from the dashboard (TikTok Studio). */
-  days?: Record<string, AccountDayInput>;
-  /** First day the history covers (account creation), YYYY-MM-DD. */
-  historySince?: string;
-  posts: PostInput[];
-  warnings: string[];
-}
+export type { ScrapeResult };
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '.data');
 const file = (p: SocialPlatform) => join(DATA_DIR, `scrape-${p.toLowerCase()}.json`);
