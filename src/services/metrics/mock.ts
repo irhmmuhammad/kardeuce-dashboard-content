@@ -8,8 +8,7 @@ import type { MetricsProvider } from './types';
  * (platform, date) or (platform, post id), so the same day always shows the
  * same values, across reloads and machines, without storing anything.
  *
- * It mirrors what each API can really return: Instagram has no account-level
- * profile visits (deprecated), Reels have no profile visits/follows, and so on,
+ * It mirrors what each API can really return: Reels have no profile visits/follows, and so on,
  * so the demo shows "—" in the same places real data will.
  */
 
@@ -312,7 +311,7 @@ function accountDay(platform: SocialPlatform, date: string, postsByDate: Map<str
     day.saves = interactions - likes - comments - shares;
     day.interactions = interactions;
     day.linkClicks = Math.round(reach * between(r, 0.002, 0.005));
-    // profileVisits stays undefined: Instagram deprecated account-level profile_views.
+    day.profileVisits = Math.round(reach * between(r, 0.02, 0.05));
   } else {
     day.interactions = likes + comments + shares;
     day.profileVisits = Math.round(views * between(r, 0.018, 0.03));

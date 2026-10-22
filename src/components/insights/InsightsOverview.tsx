@@ -111,7 +111,7 @@ export function useAccountKpiCards() {
       delta: pctDelta(kpis.profileVisits, prevKpis.profileVisits),
       hint: split(kpisBy, platforms, 'profileVisits'),
       sparkline: series('profileVisits'),
-      info: 'Instagram no longer reports account-level profile visits (deprecated by Meta in 2025), so it shows “—”. Per-post profile visits are still in the Content tab.',
+      info: 'How often the profile was opened. Older Instagram days fill in over the next few refreshes.',
     },
   ];
   return { cards, color, loading, data: d };

@@ -16,7 +16,7 @@ const SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights'
 const graph = () => `https://graph.instagram.com/${env('IG_GRAPH_VERSION') ?? 'v26.0'}`;
 const DAY_MS = 86_400_000;
 
-const ACCOUNT_METRICS = ['views', 'reach', 'accounts_engaged', 'total_interactions', 'likes', 'comments', 'shares', 'saves', 'profile_links_taps'];
+const ACCOUNT_METRICS = ['views', 'reach', 'accounts_engaged', 'total_interactions', 'likes', 'comments', 'shares', 'saves', 'profile_links_taps', 'profile_views'];
 const MEDIA_FIELDS = 'id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url,media_url,like_count,comments_count';
 const BASE_MEDIA_METRICS = ['views', 'reach', 'likes', 'comments', 'shares', 'saved', 'total_interactions'];
 const METRICS_BY_TYPE: Record<'reels' | 'feed' | 'story', string[]> = {
@@ -170,7 +170,7 @@ export const instagramProvider: ServerProvider = {
   /* ---------------- Account insights ---------------- */
 
   async account(token, range) {
-    const warnings = new Set<string>(['Instagram no longer reports account-level profile visits (profile_views was deprecated), so it shows as “—”.']);
+    const warnings = new Set<string>();
     const since = maxDate(range.since, addDaysUTC(todayUTC(), -729));
     if (since !== range.since) warnings.add('Instagram keeps account history for 2 years; older days were skipped.');
     const profile = await fetchProfile(token.accessToken);
@@ -196,6 +196,7 @@ export const instagramProvider: ServerProvider = {
         row.shares = val('shares');
         row.saves = val('saves');
         row.linkClicks = val('profile_links_taps');
+        row.profileVisits = val('profile_views');
       } catch (err) {
         if (isFatal(err)) throw err;
         warnings.add(`Instagram daily insights failed for some days: ${(err as Error).message}`);

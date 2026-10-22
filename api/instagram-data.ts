@@ -33,7 +33,7 @@ const RECENT_DAYS = 3;
 const HOT_POST_MS = 30 * DAY_MS;
 const CONCURRENCY = 5;
 
-const ACCOUNT_METRICS = ['views', 'reach', 'accounts_engaged', 'total_interactions', 'likes', 'comments', 'shares', 'saves', 'profile_links_taps'];
+const ACCOUNT_METRICS = ['views', 'reach', 'accounts_engaged', 'total_interactions', 'likes', 'comments', 'shares', 'saves', 'profile_links_taps', 'profile_views'];
 const MEDIA_FIELDS = 'id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url,media_url,like_count,comments_count';
 const BASE_MEDIA_METRICS = ['views', 'reach', 'likes', 'comments', 'shares', 'saved', 'total_interactions'];
 const METRICS_BY_TYPE: Record<'reels' | 'feed' | 'story', string[]> = {
@@ -206,6 +206,7 @@ async function readDay(accountId: string, date: string, accessToken: string): Pr
     shares: val('shares'),
     saves: val('saves'),
     linkClicks: val('profile_links_taps'),
+    profileVisits: val('profile_views'),
   });
   try {
     const f = await ig(`/${accountId}/insights`, { metric: 'follows_and_unfollows', period: 'day', metric_type: 'total_value', breakdown: 'follow_type', ...window }, accessToken);
@@ -341,7 +342,8 @@ async function refresh(prev: Cache | undefined): Promise<Cache> {
   const missing: string[] = [];
   for (let t = Date.now(), i = 0; isoDay(t) >= historySince; t -= DAY_MS, i++) {
     const date = isoDay(t);
-    if (i >= RECENT_DAYS && prev?.days[date]) days[date] = prev.days[date];
+    // Days cached before profile visits were read get read again.
+    if (i >= RECENT_DAYS && prev?.days[date] && 'profileVisits' in prev.days[date]) days[date] = prev.days[date];
     else missing.push(date);
   }
   const want = missing.slice(0, RECENT_DAYS + BACKFILL_PER_REFRESH);

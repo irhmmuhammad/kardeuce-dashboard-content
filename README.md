@@ -349,7 +349,7 @@ Untuk melepas koneksi: **Settings → Integrations → Disconnect**. Token dihap
 | Masalah | Penyebab & solusi |
 | --- | --- |
 | "token has expired" / "Reconnect" | Token Instagram berlaku 60 hari dan diperpanjang otomatis saat dipakai. Kalau sudah lewat, klik **Connect** lagi atau paste token baru. Token TikTok berlaku 24 jam dan diperpanjang otomatis dengan refresh token (1 tahun). |
-| Metrik tampil "—" | Platform memang tidak menyediakan metrik itu untuk akun/jenis post tersebut. Contoh: profile visits level akun di Instagram (sudah dihapus Meta), reach TikTok tanpa Advanced Access, atau semua metrik lanjutan di Display API. "—" artinya *tidak tersedia*, bukan 0. |
+| Metrik tampil "—" | Platform memang tidak menyediakan metrik itu untuk akun/jenis post tersebut. Contoh: reach TikTok tanpa Advanced Access, atau semua metrik lanjutan di Display API. "—" artinya *tidak tersedia*, bukan 0. |
 | Angka hari ini / kemarin kosong | Normal. Instagram dan TikTok punya jeda data **24–48 jam**. |
 | Grafik TikTok cuma 60 hari | Business API hanya memberi 60 hari ke belakang. Hari-hari yang lebih lama tetap tersimpan dari sync sebelumnya, jadi riwayat makin panjang seiring waktu. |
 | Grafik follower Instagram pendek / "estimated" | Instagram tidak menyediakan riwayat jumlah follower. Aplikasi mencatat jumlah follower di setiap sync, dan hari sebelumnya dihitung mundur dari follows/unfollows harian (ditandai *estimated*). |
